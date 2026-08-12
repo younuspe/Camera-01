@@ -1,0 +1,6 @@
+{
+  "name": "CamGuard Monitor",
+  "description": "Smart home security monitor and high-resolution camera recorder with motion logs, custom timestamps, and security dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
