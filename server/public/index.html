@@ -1,111 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Younuspe Mobile Cam Controller</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #121212;
-      color: #ffffff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-    video {
-      width: 100%;
-      max-width: 640px;
-      height: auto;
-      background-color: #000;
-      border-radius: 8px;
-    }
-    .controls {
-      margin-top: 15px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      border-radius: 5px;
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-    }
-    button:hover { background-color: #0056b3; }
-    #status { margin-bottom: 10px; font-weight: bold; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Remote Camera Monitor</title>
 </head>
 <body>
+    <h2>Live Camera Stream</h2>
+    <img id="stream" src="" alt="Waiting for camera stream..." width="640">
 
-  <h2>Younuspe Mobile Cam View & Control</h2>
-  <div id="status">Connecting to server...</div>
+    <script>
+        // Connect to Node.js WebSocket server to receive video frames
+        const ws = new WebSocket('ws://' + window.location.host);
+        const img = document.getElementById('stream');
 
-  <video id="remoteVideo" autoplay playsinline controls></video>
-
-  <div class="controls">
-    <button onclick="sendCommand('switch_camera')">📷 Switch Camera</button>
-    <button onclick="sendCommand('toggle_flash')">💡 Toggle Flash</button>
-    <button onclick="sendCommand('take_photo')">📸 Take Photo</button>
-  </div>
-
-  <script>
-    const statusDiv = document.getElementById('status');
-    const remoteVideo = document.getElementById('remoteVideo');
-    
-    // Connect to WebSocket Signaling Server
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
-    let peerConnection;
-
-    const configuration = {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    };
-
-    ws.onopen = () => {
-      statusDiv.innerText = 'Connected to Signaling Server. Registering as Controller...';
-      ws.send(JSON.stringify({ type: 'register', role: 'controller' }));
-    };
-
-    ws.onmessage = async (event) => {
-      const message = JSON.parse(event.data);
-
-      if (message.type === 'offer') {
-        statusDiv.innerText = 'Receiving stream from mobile...';
-        peerConnection = new RTCPeerConnection(configuration);
-
-        peerConnection.ontrack = (e) => {
-          remoteVideo.srcObject = e.streams[0];
+        ws.onmessage = (event) => {
+            // Update image source with received base64 or blob frame
+            img.src = 'data:image/jpeg;base64,' + event.data;
         };
-
-        peerConnection.onicecandidate = (e) => {
-          if (e.candidate) {
-            ws.send(JSON.stringify({ type: 'candidate', candidate: e.candidate }));
-          }
-        };
-
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-
-        ws.send(JSON.stringify({ type: 'answer', answer: answer }));
-      } else if (message.type === 'candidate' && peerConnection) {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
-      }
-    };
-
-    function sendCommand(action) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'command', action: action }));
-        alert(`Sent command: ${action}`);
-      } else {
-        alert('Not connected to server');
-      }
-    }
-  </script>
+    </script>
 </body>
 </html>
