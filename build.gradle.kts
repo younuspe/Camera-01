@@ -7,3 +7,12 @@ plugins {
   alias(libs.plugins.secrets) apply false
   alias(libs.plugins.google.services) apply false
 }
+dependencies {
+    // ... existing dependencies ...
+
+    // WebRTC for live video streaming
+    implementation("com.github.webrtc-sdk:android:104.5112.09")
+
+    // OkHttp for WebSocket connection to signaling server
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
