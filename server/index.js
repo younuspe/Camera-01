@@ -1,23 +1,37 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port: PORT });
 
-// Track connected roles: 'camera' or 'controller'
+// HTTP Server to serve index.html
+const server = http.createServer((req, res) => {
+  let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      res.writeHead(404);
+      res.end('File not found');
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(content, 'utf-8');
+    }
+  });
+});
+
+const wss = new WebSocketServer({ server });
+
 let cameraSocket = null;
 let controllerSocket = null;
 
-console.log(`Signaling server running on port ${PORT}`);
-
 wss.on('connection', (ws) => {
-  console.log('New client connected');
+  console.log('Client connected');
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
 
       switch (data.type) {
-        // Register client role
         case 'register':
           if (data.role === 'camera') {
             cameraSocket = ws;
@@ -28,37 +42,27 @@ wss.on('connection', (ws) => {
           }
           break;
 
-        // Relay WebRTC signaling (offers, answers, ICE candidates)
         case 'offer':
         case 'answer':
         case 'candidate':
           relayMessage(ws, data);
           break;
 
-        // Relay camera control commands (e.g., switch camera, toggle flash)
         case 'command':
           if (ws === controllerSocket && cameraSocket) {
             cameraSocket.send(JSON.stringify(data));
             console.log(`Relayed command to camera: ${data.action}`);
           }
           break;
-
-        default:
-          console.log('Unknown message type:', data.type);
       }
     } catch (err) {
-      console.error('Failed to parse message:', err);
+      console.error('Error handling message:', err);
     }
   });
 
   ws.on('close', () => {
-    if (ws === cameraSocket) {
-      console.log('Camera disconnected');
-      cameraSocket = null;
-    } else if (ws === controllerSocket) {
-      console.log('Controller disconnected');
-      controllerSocket = null;
-    }
+    if (ws === cameraSocket) cameraSocket = null;
+    if (ws === controllerSocket) controllerSocket = null;
   });
 });
 
@@ -68,3 +72,7 @@ function relayMessage(sender, data) {
     recipient.send(JSON.stringify(data));
   }
 }
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
