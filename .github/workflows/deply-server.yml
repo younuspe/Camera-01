@@ -1,0 +1,17 @@
+name: Deploy Signaling Server
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'server/**' # Only runs if code in your backend folder changes
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4  
+
+      # Add deployment steps here depending on your cloud host 
+      # (e.g. Azure, Render, Heroku, or AWS)
