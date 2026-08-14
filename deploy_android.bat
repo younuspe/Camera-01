@@ -5,6 +5,19 @@ echo         SUPRU AI - ANDROID AUTOMATED PIPELINE
 echo =======================================================
 echo.
 
+:: STEP 1: VERIFY HARDWARE DEVICE IS CONNECTED VIA WI-FI
+echo [*] Initializing Android Debug Bridge Wireless Connection...
+cd /d "%~dp0"
+
+:: Ask your client to type in their phone's IP address and Port
+set /p PhoneIP="Enter your phone's wireless IP and Port (e.g., 192.168.1.5:5555): "
+
+echo [*] Pairing and connecting to %PhoneIP%...
+.\platform-tools\adb.exe connect %PhoneIP%
+echo.
+
+
+
 :: STEP 1: VERIFY HARDWARE DEVICE IS CONNECTED VIA USB
 echo [*] Initializing Android Debug Bridge connection...
 cd /d "%~dp0"
