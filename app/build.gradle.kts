@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
-    implementation("com.github.webrtc-sdk:android:104.5112.09")
+    // 104.5112.09 is published under the io.github.webrtc-sdk group on Maven Central.
+    implementation("io.github.webrtc-sdk:android:104.5112.09")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
