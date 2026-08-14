@@ -76,9 +76,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // WebRTC 104.5112.09 is published under io.github.webrtc-sdk on Maven Central.
-    implementation("io.github.webrtc-sdk:android:104.5112.09")
-
     // Unit/instrumentation tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.11.1")
