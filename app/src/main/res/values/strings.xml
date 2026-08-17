@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">CamGuard</string>
+    <!-- app_name is provided per-flavor in src/<flavor>/res/values/strings.xml
+         so the control and client APKs carry distinct launcher labels. -->
 </resources>

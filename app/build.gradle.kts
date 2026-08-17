@@ -16,8 +16,33 @@ android {
         versionName = "1.0"
     }
 
+    // Two build targets: the "control" mobile (viewer/monitor side) and the
+    // "client" mobile (the camera device being monitored). Each flavor gets a
+    // distinct applicationId suffix so both APKs can be installed side-by-side,
+    // and a BuildConfig flag so the app can branch behavior at runtime.
+    flavorDimensions += "role"
+    productFlavors {
+        create("control") {
+            dimension = "role"
+            applicationIdSuffix = ".control"
+            versionNameSuffix = "-control"
+            buildConfigField("boolean", "IS_CONTROL_DEVICE", "true")
+            buildConfigField("boolean", "IS_CLIENT_DEVICE", "false")
+            resValue("string", "app_role_label", "Control Mobile")
+        }
+        create("client") {
+            dimension = "role"
+            applicationIdSuffix = ".client"
+            versionNameSuffix = "-client"
+            buildConfigField("boolean", "IS_CONTROL_DEVICE", "false")
+            buildConfigField("boolean", "IS_CLIENT_DEVICE", "true")
+            resValue("string", "app_role_label", "Camera Mobile (Client)")
+        }
+    }
+
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -36,6 +61,43 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    // Release signing. Reads keystore details from environment variables so CI
+    // (or a local machine) can sign release APKs without committing secrets.
+    // When the env vars are absent (e.g. a fresh CI run), we fall back to the
+    // debug keystore so the build still succeeds and produces a *signed* APK
+    // (fewer "unknown developer" Play Protect warnings than an unsigned one).
+    val keystorePath = System.getenv("CAMGUARD_KEYSTORE_PATH") ?: "debug.keystore"
+    val keystorePass = System.getenv("CAMGUARD_KEYSTORE_PASS") ?: "android"
+    val keyAliasVal = System.getenv("CAMGUARD_KEY_ALIAS") ?: "androiddebugkey"
+    val keyPassVal = System.getenv("CAMGUARD_KEY_PASS") ?: "android"
+    // Resolve the keystore relative to the project root (not the module dir)
+    // so a `debug.keystore` created at the repo root by CI is found.
+    val keystoreFile = rootProject.file(keystorePath).let { f ->
+        if (f.exists()) f else file(keystorePath)
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = keystoreFile
+            storePassword = keystorePass
+            keyAlias = keyAliasVal
+            keyPassword = keyPassVal
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
@@ -64,6 +126,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.2")
     implementation("androidx.camera:camera-lifecycle:1.3.2")
     implementation("androidx.camera:camera-view:1.3.2")
+    // VideoCapture use case + Recorder API for real .mp4 video recording.
+    implementation("androidx.camera:camera-video:1.3.2")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
@@ -73,8 +137,21 @@ dependencies {
     // Coroutines / networking / images
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Firebase Realtime Database — used for control -> client remote commands
+    // and client -> control status updates. The google-services Gradle plugin
+    // is intentionally NOT applied: it hard-fails the build when
+    // google-services.json is absent. Instead Firebase is initialized at
+    // runtime via FirebaseCommandBus.initManual(...) using values the user
+    // enters in Settings (persisted). When not configured the bus no-ops
+    // gracefully and the app stays in local-only mode.
+    implementation(platform("com.google.firebase:firebase-bom:32.7.3"))
+    implementation("com.google.firebase:firebase-database-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-common-ktx")
 
     // Unit/instrumentation tests
     testImplementation("junit:junit:4.13.2")

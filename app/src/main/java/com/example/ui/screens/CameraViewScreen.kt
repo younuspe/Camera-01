@@ -11,6 +11,13 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -93,11 +100,15 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.WarningAmber
 import com.example.ui.viewmodel.SecurityUiState
 import com.example.ui.viewmodel.SecurityViewModel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlinx.coroutines.delay
+
+private const val SNAPSHOT_INTERVAL_MS = 3000L
 
 @Composable
 fun CameraViewScreen(
@@ -110,6 +121,12 @@ fun CameraViewScreen(
 
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     var previewView: PreviewView? by remember { mutableStateOf(null) }
+    var videoCapture: VideoCapture<Recorder>? by remember { mutableStateOf(null) }
+    // Handle to the active recording so we can stop it; null when not recording.
+    val activeRecording = remember { mutableStateOf<Recording?>(null) }
+    var recordedFile by remember { mutableStateOf<File?>(null) }
+    // Duration (seconds) captured at stop time, read when Finalize fires.
+    val pendingDurationSec = remember { mutableStateOf(0L) }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
@@ -126,14 +143,20 @@ fun CameraViewScreen(
     )
 
     // Re-bind camera when lens or monitoring state changes
-    LaunchedEffect(uiState.lensFacing, uiState.flashMode, uiState.isMonitoringActive) {
+    LaunchedEffect(uiState.lensFacing, uiState.flashMode, uiState.isMonitoringActive, uiState.isLiveViewRequested) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
                 cameraProvider.unbindAll()
 
-                if (uiState.isMonitoringActive) {
+                // Client camera is OFF by default to save power. It only binds
+                // (and streams) when the control phone has requested live view.
+                // The control phone keeps its own local camera bound as before.
+                val cameraShouldBeActive = uiState.isMonitoringActive &&
+                    (uiState.isControlDevice || uiState.isLiveViewRequested)
+
+                if (cameraShouldBeActive) {
                     val preview = Preview.Builder().build()
                     val selector = CameraSelector.Builder()
                         .requireLensFacing(uiState.lensFacing)
@@ -150,7 +173,13 @@ fun CameraViewScreen(
                         )
                         .build()
 
-                    val useCases = mutableListOf<androidx.camera.core.UseCase>(preview, capture)
+                    // Real video recording: CameraX Recorder -> VideoCapture use case.
+                    val recorder = Recorder.Builder()
+                        .setQualitySelector(QualitySelector.from(Quality.HD))
+                        .build()
+                    val vCapture = VideoCapture.withOutput(recorder)
+
+                    val useCases = mutableListOf<androidx.camera.core.UseCase>(preview, capture, vCapture)
 
                     if (uiState.enableMotionSensing) {
                         val analysis = androidx.camera.core.ImageAnalysis.Builder()
@@ -174,6 +203,7 @@ fun CameraViewScreen(
                             *useCases.toTypedArray()
                         )
                         imageCapture = capture
+                        videoCapture = vCapture
                     }
                 }
             } catch (e: Exception) {
@@ -188,13 +218,87 @@ fun CameraViewScreen(
         }
     }
 
+    // React to recording state changes (local button OR remote Firebase command):
+    // start/stop the real CameraX recording to match uiState.isRecording.
+    LaunchedEffect(uiState.isRecording) {
+        val vCap = videoCapture
+        if (uiState.isRecording) {
+            // Only start if not already recording (avoid double-start).
+            if (activeRecording.value == null && vCap != null) {
+                val name = "VID_${System.currentTimeMillis()}.mp4"
+                val outFile = File(context.filesDir, name)
+                val recorder = vCap.output
+                val fileOutput = FileOutputOptions.Builder(outFile).build()
+                val pending = recorder
+                    .prepareRecording(context, fileOutput)
+                    .withAudioEnabled()
+                val listener = androidx.core.util.Consumer<VideoRecordEvent> { event ->
+                    if (event is VideoRecordEvent.Finalize) {
+                        if (!event.hasError()) {
+                            viewModel.onVideoSaved(outFile, pendingDurationSec.value)
+                        } else {
+                            Log.e("CameraViewScreen", "Recording error: ${event.error}")
+                        }
+                    }
+                }
+                val rec = pending.start(cameraExecutor, listener)
+                activeRecording.value = rec
+                recordedFile = outFile
+                viewModel.startRecordingTimer()
+            }
+        } else {
+            // Stop any active recording.
+            if (activeRecording.value != null) {
+                pendingDurationSec.value = viewModel.stopRecordingTimer()
+                activeRecording.value?.stop()
+                activeRecording.value = null
+            }
+        }
+    }
+
+    // Client flavor: periodically capture a low-res JPEG and publish it to
+    // Firebase so the control phone can display a live view of this camera.
+    // Runs only when monitoring is active and a camera use case is bound.
+    LaunchedEffect(uiState.isMonitoringActive, uiState.snapshotPublishingEnabled) {
+        if (!uiState.isMonitoringActive || !uiState.snapshotPublishingEnabled) return@LaunchedEffect
+        while (true) {
+            delay(SNAPSHOT_INTERVAL_MS)
+            val capture = imageCapture ?: continue
+            try {
+                val out = ByteArrayOutputStream()
+                // In-memory capture (no disk file) — small JPEG for the live view.
+                val opts = ImageCapture.OutputFileOptions.Builder(out).build()
+                capture.takePicture(
+                    opts,
+                    cameraExecutor,
+                    object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                            val jpeg = out.toByteArray()
+                            val b64 = android.util.Base64.encodeToString(
+                                jpeg, android.util.Base64.NO_WRAP
+                            )
+                            viewModel.publishClientSnapshot(b64)
+                        }
+
+                        override fun onError(exc: ImageCaptureException) {
+                            Log.w("CameraViewScreen", "Snapshot capture failed: ${exc.message}")
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.w("CameraViewScreen", "Snapshot loop error: ${e.message}")
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(SlateDark)
     ) {
         // Viewfinder
-        if (uiState.isMonitoringActive) {
+        if (uiState.isMonitoringActive &&
+            (uiState.isControlDevice || uiState.isLiveViewRequested)) {
             AndroidView(
                 factory = { ctx ->
                     PreviewView(ctx).apply {
@@ -225,14 +329,18 @@ fun CameraViewScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "CAMERA MONITOR IN STANDBY",
+                        text = if (uiState.isClientDevice && !uiState.isLiveViewRequested)
+                            "CAMERA IDLE — WAITING FOR CONTROL"
+                        else "CAMERA MONITOR IN STANDBY",
                         style = MaterialTheme.typography.titleMedium,
                         color = TextMuted,
                         letterSpacing = 2.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Tap Active Monitoring to enable live viewfinder",
+                        text = if (uiState.isClientDevice && !uiState.isLiveViewRequested)
+                            "The control phone is not watching. Camera is off to save power."
+                        else "Tap Active Monitoring to enable live viewfinder",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextMuted
                     )
@@ -241,7 +349,8 @@ fun CameraViewScreen(
         }
 
         // HUD Scanner Overlay (Corner crosshairs & target box)
-        if (uiState.isMonitoringActive) {
+        if (uiState.isMonitoringActive &&
+            (uiState.isControlDevice || uiState.isLiveViewRequested)) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
@@ -505,24 +614,19 @@ fun CameraViewScreen(
                     }
                 }
 
-                // Record Video Toggle
+                // Record Video Toggle — flips isRecording; the LaunchedEffect
+                // above starts/stops the real CameraX recording to match state.
+                // This makes both the local button and remote Firebase commands work.
                 Box(
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
                         .background(if (uiState.isRecording) LiveRed else SlateCard)
                         .clickable {
-                            if (uiState.isRecording) {
-                                val dur = viewModel.stopRecordingTimer()
-                                // Save video record entry
-                                val sampleVideoFile = File(context.filesDir, "VID_${System.currentTimeMillis()}.mp4")
-                                if (!sampleVideoFile.exists()) {
-                                    sampleVideoFile.createNewFile()
-                                }
-                                viewModel.onVideoSaved(sampleVideoFile, dur)
+                            if (videoCapture == null) {
+                                Toast.makeText(context, "Camera not ready", Toast.LENGTH_SHORT).show()
                             } else {
-                                viewModel.startRecordingTimer()
-                                Toast.makeText(context, "Video recording started", Toast.LENGTH_SHORT).show()
+                                viewModel.toggleRecording()
                             }
                         }
                         .testTag("record_video_button"),

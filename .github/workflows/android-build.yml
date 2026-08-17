@@ -36,12 +36,47 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build Debug APKs
+        run: gradle assembleControlDebug assembleClientDebug --no-daemon --stacktrace
 
-      - name: Upload Debug APK
+      - name: Generate release keystore (for signed APKs)
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=CamGuard, OU=Dev, O=CamGuard, L=Dubai, C=AE"
+          fi
+
+      - name: Build signed Release APKs
+        run: gradle assembleControlRelease assembleClientRelease --no-daemon --stacktrace
+
+      - name: Upload Control (dashboard) debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: CamGuard-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: CamGuard-Control-debug-apk
+          path: app/build/outputs/apk/control/debug/*.apk
           if-no-files-found: error
+
+      - name: Upload Camera (client) debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamGuard-Camera-debug-apk
+          path: app/build/outputs/apk/client/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload Control (dashboard) signed release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamGuard-Control-release-apk
+          path: app/build/outputs/apk/control/release/*.apk
+          if-no-files-found: warn
+
+      - name: Upload Camera (client) signed release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamGuard-Camera-release-apk
+          path: app/build/outputs/apk/client/release/*.apk
+          if-no-files-found: warn

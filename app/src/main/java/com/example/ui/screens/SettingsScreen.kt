@@ -66,6 +66,7 @@ import com.example.ui.viewmodel.SecurityViewModel
 fun SettingsScreen(
     viewModel: SecurityViewModel,
     uiState: SecurityUiState,
+    onOpenPairing: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -93,6 +94,63 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
+        }
+
+        // Firebase Pairing card — opens the setup screen where the user types
+        // the Firebase project config + shared device ID on both phones.
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("firebase_pairing_card"),
+            colors = CardDefaults.cardColors(containerColor = SlateCard),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (uiState.isRemoteBusConnected) androidx.compose.ui.graphics.Color(0xFF3DDC84).copy(alpha = 0.5f)
+                else SlateBorder
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = if (uiState.isRemoteBusConnected) androidx.compose.ui.graphics.Color(0xFF3DDC84) else TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Firebase Remote Pairing",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (uiState.isRemoteBusConnected)
+                                "Connected • Device: ${uiState.remoteDeviceId}"
+                            else "Not connected — tap to set up",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (uiState.isRemoteBusConnected) TextSecondary else TextMuted
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onOpenPairing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_pairing_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF00BCD4)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = if (uiState.isRemoteBusConnected) "Edit Pairing" else "Set Up Pairing",
+                        color = SlateDark,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         // Baby Cry Sound Detection Settings Card
