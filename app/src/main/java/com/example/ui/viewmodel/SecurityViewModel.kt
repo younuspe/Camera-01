@@ -29,6 +29,7 @@ import com.example.remote.DevicePairing
 import com.example.remote.FirebaseCommandBus
 import com.example.remote.RemoteCommand
 import com.example.remote.RemoteMediaEntry
+import com.example.service.CameraForegroundService
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
