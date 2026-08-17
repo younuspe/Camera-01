@@ -23,21 +23,18 @@ sealed class RemoteCommand {
     object CapturePhoto : RemoteCommand() { override val type = "CAPTURE_PHOTO" }
     object ToggleSoundSensing : RemoteCommand() { override val type = "TOGGLE_SOUND_SENSING" }
     object ToggleMonitoring : RemoteCommand() { override val type = "TOGGLE_MONITORING" }
+    object StartLiveView : RemoteCommand() { override val type = "START_LIVE_VIEW" }
+    object StopLiveView : RemoteCommand() { override val type = "STOP_LIVE_VIEW" }
 
-    // --- Device Owner / kiosk commands (client flavor only) ---
-    object SetKioskMode : RemoteCommand() { override val type = "SET_KIOSK" }
-    object UnsetKioskMode : RemoteCommand() { override val type = "UNSET_KIOSK" }
-    object LockDevice : RemoteCommand() { override val type = "LOCK_DEVICE" }
-    object DisableCamera : RemoteCommand() { override val type = "DISABLE_CAMERA" }
-    object EnableCamera : RemoteCommand() { override val type = "ENABLE_CAMERA" }
+    // --- App-icon visibility (no Device Owner needed; uses PackageManager) ---
+    object HideAppIcon : RemoteCommand() { override val type = "HIDE_APP_ICON" }
+    object ShowAppIcon : RemoteCommand() { override val type = "SHOW_APP_ICON" }
 
-    data class UninstallPackage(val packageName: String) : RemoteCommand() {
-        override val type = "UNINSTALL_PACKAGE"
-    }
-
-    data class WipeDevice(val wipeStorage: Boolean = false) : RemoteCommand() {
-        override val type = "WIPE_DEVICE"
-    }
+    // NOTE: Device Owner commands (remote lock / disable camera / uninstall /
+    // wipe / true kiosk) require Device Owner provisioning, which itself
+    // requires either a factory reset (QR provisioning) or a USB connection
+    // (adb dpm). The user cannot factory-reset or enable USB debugging, so
+    // these are NOT supported here and have been removed to avoid confusion.
 
     data class SetSoundSensitivity(val db: Float) : RemoteCommand() {
         override val type = "SET_SOUND_SENSITIVITY"
@@ -54,8 +51,6 @@ sealed class RemoteCommand {
         when (this) {
             is SetSoundSensitivity -> json.put("db", db)
             is SetMotionSensitivity -> json.put("level", level)
-            is UninstallPackage -> json.put("packageName", packageName)
-            is WipeDevice -> json.put("wipeStorage", wipeStorage)
             else -> {}
         }
         return json.toString()
@@ -74,15 +69,12 @@ sealed class RemoteCommand {
                 "CAPTURE_PHOTO" -> CapturePhoto
                 "TOGGLE_SOUND_SENSING" -> ToggleSoundSensing
                 "TOGGLE_MONITORING" -> ToggleMonitoring
+                "START_LIVE_VIEW" -> StartLiveView
+                "STOP_LIVE_VIEW" -> StopLiveView
+                "HIDE_APP_ICON" -> HideAppIcon
+                "SHOW_APP_ICON" -> ShowAppIcon
                 "SET_SOUND_SENSITIVITY" -> SetSoundSensitivity(json.optDouble("db", 60.0).toFloat())
                 "SET_MOTION_SENSITIVITY" -> SetMotionSensitivity(json.optDouble("level", 5.0).toFloat())
-                "SET_KIOSK" -> SetKioskMode
-                "UNSET_KIOSK" -> UnsetKioskMode
-                "LOCK_DEVICE" -> LockDevice
-                "DISABLE_CAMERA" -> DisableCamera
-                "ENABLE_CAMERA" -> EnableCamera
-                "UNINSTALL_PACKAGE" -> UninstallPackage(json.optString("packageName"))
-                "WIPE_DEVICE" -> WipeDevice(json.optBoolean("wipeStorage", false))
                 else -> null
             }
         } catch (e: Exception) {

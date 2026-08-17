@@ -1,6 +1,8 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import androidx.camera.core.CameraSelector
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -76,7 +78,8 @@ data class SecurityUiState(
     val remoteStatus: ClientStatus? = null, // control side: latest status from client
     val isDeviceOwner: Boolean = false, // client side: app provisioned as Device Owner (kiosk/install)
     val remoteSnapshotBase64: String? = null, // control side: latest live JPEG (base64) from client camera
-    val snapshotPublishingEnabled: Boolean = false // client side: whether to stream snapshots to control
+    val snapshotPublishingEnabled: Boolean = false, // client side: whether to stream snapshots to control
+    val isLiveViewRequested: Boolean = false // client: control has requested live streaming (camera ON). Default OFF to save power.
 )
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -194,18 +197,12 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             }
             is RemoteCommand.ToggleSoundSensing -> toggleSoundSensing()
             is RemoteCommand.ToggleMonitoring -> toggleMonitoringActive()
+            is RemoteCommand.StartLiveView -> setLiveViewRequested(true)
+            is RemoteCommand.StopLiveView -> setLiveViewRequested(false)
+            is RemoteCommand.HideAppIcon -> setAppIconVisible(false)
+            is RemoteCommand.ShowAppIcon -> setAppIconVisible(true)
             is RemoteCommand.SetSoundSensitivity -> setSoundSensitivityDb(command.db)
             is RemoteCommand.SetMotionSensitivity -> setSensitivity(command.level)
-            // --- Device Owner / kiosk commands (client flavor only) ---
-            is RemoteCommand.SetKioskMode -> devicePolicyController.setKioskMode(true)
-            is RemoteCommand.UnsetKioskMode -> devicePolicyController.setKioskMode(false)
-            is RemoteCommand.LockDevice -> devicePolicyController.lockNow()
-            is RemoteCommand.DisableCamera -> devicePolicyController.setCameraDisabled(true)
-            is RemoteCommand.EnableCamera -> devicePolicyController.setCameraDisabled(false)
-            is RemoteCommand.UninstallPackage ->
-                devicePolicyController.uninstallPackage(command.packageName)
-            is RemoteCommand.WipeDevice ->
-                devicePolicyController.wipeDevice(command.wipeStorage)
         }
         _uiState.update {
             it.copy(lastRemoteCommandText = "Executed remote command: ${command.type}")
@@ -348,15 +345,10 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         FirebaseCommandBus.restoreSavedPairing(getApplication())
 
     // --- Device Owner / kiosk remote commands (control -> client) ---
-    fun remoteSetKioskMode() = sendRemoteCommand(RemoteCommand.SetKioskMode)
-    fun remoteUnsetKioskMode() = sendRemoteCommand(RemoteCommand.UnsetKioskMode)
-    fun remoteLockDevice() = sendRemoteCommand(RemoteCommand.LockDevice)
-    fun remoteDisableCamera() = sendRemoteCommand(RemoteCommand.DisableCamera)
-    fun remoteEnableCamera() = sendRemoteCommand(RemoteCommand.EnableCamera)
-    fun remoteUninstallPackage(packageName: String) =
-        sendRemoteCommand(RemoteCommand.UninstallPackage(packageName))
-    fun remoteWipeDevice(wipeStorage: Boolean = false) =
-        sendRemoteCommand(RemoteCommand.WipeDevice(wipeStorage))
+    fun remoteStartLiveView() = sendRemoteCommand(RemoteCommand.StartLiveView)
+    fun remoteStopLiveView() = sendRemoteCommand(RemoteCommand.StopLiveView)
+    fun remoteHideAppIcon() = sendRemoteCommand(RemoteCommand.HideAppIcon)
+    fun remoteShowAppIcon() = sendRemoteCommand(RemoteCommand.ShowAppIcon)
 
     override fun onCleared() {
         super.onCleared()
@@ -422,6 +414,38 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleMonitoringActive() {
         _uiState.update { it.copy(isMonitoringActive = !it.isMonitoringActive) }
+    }
+
+    /**
+     * Control-driven live-view gate. When the control phone requests live view,
+     * the client wakes the camera + begins publishing snapshots; when it
+     * disconnects, the camera unbinds and the device goes idle to save power.
+     */
+    fun setLiveViewRequested(requested: Boolean) {
+        _uiState.update {
+            it.copy(
+                isLiveViewRequested = requested,
+                snapshotPublishingEnabled = requested && it.isMonitoringActive
+            )
+        }
+    }
+
+    /**
+     * Hide/show the client app's launcher icon. Uses PackageManager's
+     * setComponentEnabledSetting on a dedicated launcher alias, so it works
+     * WITHOUT Device Owner. When hidden, the app is still reachable via the
+     * secret dial code (*#*#2426483#*#* = "CAMGUA") defined in the manifest.
+     */
+    fun setAppIconVisible(visible: Boolean) {
+        val pm = getApplication<Application>().packageManager
+        val pkg = getApplication<Application>().packageName
+        val alias = ComponentName(pkg, "$pkg.HiddenLauncherAlias")
+        val state = if (visible)
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        else
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        pm.setComponentEnabledSetting(alias, state, PackageManager.DONT_KILL_APP)
+        _uiState.update { it.copy(userNotificationMessage = if (visible) "App icon shown" else "App icon hidden — launch via dial code *#*#2426483#*#*") }
     }
 
     fun toggleSoundSensing() {

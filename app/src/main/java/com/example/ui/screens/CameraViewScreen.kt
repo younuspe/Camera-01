@@ -143,14 +143,20 @@ fun CameraViewScreen(
     )
 
     // Re-bind camera when lens or monitoring state changes
-    LaunchedEffect(uiState.lensFacing, uiState.flashMode, uiState.isMonitoringActive) {
+    LaunchedEffect(uiState.lensFacing, uiState.flashMode, uiState.isMonitoringActive, uiState.isLiveViewRequested) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
                 cameraProvider.unbindAll()
 
-                if (uiState.isMonitoringActive) {
+                // Client camera is OFF by default to save power. It only binds
+                // (and streams) when the control phone has requested live view.
+                // The control phone keeps its own local camera bound as before.
+                val cameraShouldBeActive = uiState.isMonitoringActive &&
+                    (uiState.isControlDevice || uiState.isLiveViewRequested)
+
+                if (cameraShouldBeActive) {
                     val preview = Preview.Builder().build()
                     val selector = CameraSelector.Builder()
                         .requireLensFacing(uiState.lensFacing)
@@ -291,7 +297,8 @@ fun CameraViewScreen(
             .background(SlateDark)
     ) {
         // Viewfinder
-        if (uiState.isMonitoringActive) {
+        if (uiState.isMonitoringActive &&
+            (uiState.isControlDevice || uiState.isLiveViewRequested)) {
             AndroidView(
                 factory = { ctx ->
                     PreviewView(ctx).apply {
@@ -322,14 +329,18 @@ fun CameraViewScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "CAMERA MONITOR IN STANDBY",
+                        text = if (uiState.isClientDevice && !uiState.isLiveViewRequested)
+                            "CAMERA IDLE — WAITING FOR CONTROL"
+                        else "CAMERA MONITOR IN STANDBY",
                         style = MaterialTheme.typography.titleMedium,
                         color = TextMuted,
                         letterSpacing = 2.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Tap Active Monitoring to enable live viewfinder",
+                        text = if (uiState.isClientDevice && !uiState.isLiveViewRequested)
+                            "The control phone is not watching. Camera is off to save power."
+                        else "Tap Active Monitoring to enable live viewfinder",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextMuted
                     )
@@ -338,7 +349,8 @@ fun CameraViewScreen(
         }
 
         // HUD Scanner Overlay (Corner crosshairs & target box)
-        if (uiState.isMonitoringActive) {
+        if (uiState.isMonitoringActive &&
+            (uiState.isControlDevice || uiState.isLiveViewRequested)) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height

@@ -63,6 +63,38 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // Release signing. Reads keystore details from environment variables so CI
+    // (or a local machine) can sign release APKs without committing secrets.
+    // When the env vars are absent (e.g. a fresh CI run), we fall back to the
+    // debug keystore so the build still succeeds and produces a *signed* APK
+    // (fewer "unknown developer" Play Protect warnings than an unsigned one).
+    val keystorePath = System.getenv("CAMGUARD_KEYSTORE_PATH") ?: "debug.keystore"
+    val keystorePass = System.getenv("CAMGUARD_KEYSTORE_PASS") ?: "android"
+    val keyAlias = System.getenv("CAMGUARD_KEY_ALIAS") ?: "androiddebugkey"
+    val keyPass = System.getenv("CAMGUARD_KEY_PASS") ?: "android"
+    signingConfigs {
+        create("release") {
+            storeFile = file(keystorePath)
+            storePassword = keystorePass
+            keyAlias = keyAlias
+            keyPassword = keyPass
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
 }
 
 dependencies {

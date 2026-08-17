@@ -25,9 +25,12 @@ import com.example.R
  */
 class CameraForegroundService : Service() {
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        acquireWakeLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -49,7 +52,39 @@ class CameraForegroundService : Service() {
         return START_STICKY
     }
 
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Holds a PARTIAL_WAKE_LOCK so the CPU and camera pipeline keep running
+     * while the screen is off — WITHOUT turning the screen on. This is the
+     * key to background camera operation on Android 13+ where the OS otherwise
+     * suspends camera access shortly after the display sleeps.
+     */
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            wakeLock = pm.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "CamGuard::CameraWake"
+            ).apply { acquire(/* no timeout — held for the service lifetime */) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not acquire wake lock: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not release wake lock: ${e.message}")
+        }
+    }
 
     private fun buildNotification(): Notification {
         val tapIntent = Intent(this, MainActivity::class.java).apply {

