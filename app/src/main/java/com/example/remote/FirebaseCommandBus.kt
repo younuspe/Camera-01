@@ -48,7 +48,8 @@ data class ClientStatus(
     val isCryDetected: Boolean,
     val isMotionDetected: Boolean,
     val lastCommandText: String?,
-    val online: Boolean = true
+    val online: Boolean = true,
+    val isDeviceOwner: Boolean = false
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -62,6 +63,7 @@ data class ClientStatus(
         json.put("isMotionDetected", isMotionDetected)
         json.put("lastCommandText", lastCommandText ?: "")
         json.put("online", online)
+        json.put("isDeviceOwner", isDeviceOwner)
         json.put("timestamp", System.currentTimeMillis())
         return json.toString()
     }
@@ -79,7 +81,8 @@ data class ClientStatus(
                 isCryDetected = j.optBoolean("isCryDetected"),
                 isMotionDetected = j.optBoolean("isMotionDetected"),
                 lastCommandText = j.optString("lastCommandText").ifBlank { null },
-                online = j.optBoolean("online", true)
+                online = j.optBoolean("online", true),
+                isDeviceOwner = j.optBoolean("isDeviceOwner", false)
             )
         } catch (e: Exception) {
             null

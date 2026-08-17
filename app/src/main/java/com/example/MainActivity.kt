@@ -2,12 +2,14 @@ package com.example
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.example.service.CameraForegroundService
 import com.example.ui.navigation.MainNavContainer
 import com.example.ui.navigation.NavTab
 import com.example.ui.theme.CamGuardTheme
@@ -22,6 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         requestCameraPermissionIfNeeded()
+        startCameraForegroundServiceIfClient()
         renderUi()
     }
 
@@ -39,12 +42,30 @@ class MainActivity : ComponentActivity() {
         ) {
             permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
         }
+        // POST_NOTIFICATIONS is required on Android 13+ for the foreground-service
+        // notification that keeps the camera alive in the background.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         if (permissionsToRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this,
                 permissionsToRequest.toTypedArray(),
                 cameraPermissionRequestCode
             )
+        }
+    }
+
+    /**
+     * On the client (camera) flavor, start the foreground service that keeps the
+     * camera/mic alive while the app is backgrounded or the screen is off.
+     */
+    private fun startCameraForegroundServiceIfClient() {
+        if (BuildConfig.IS_CLIENT_DEVICE) {
+            CameraForegroundService.start(this)
         }
     }
 

@@ -527,6 +527,112 @@ fun SecurityDashboardScreen(
             }
         }
 
+        // Device Owner controls (kiosk / install / wipe). Only shown on the
+        // control flavor; the client only executes them when provisioned as
+        // Device Owner (see README -> Device Owner setup).
+        if (uiState.isControlDevice) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Device Control",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (uiState.remoteStatus?.isDeviceOwner == true)
+                                "Client is Device Owner — commands active"
+                            else
+                                "Client is not Device Owner — commands will no-op until provisioned",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (uiState.remoteStatus?.isDeviceOwner == true) ActiveGreen else TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteSetKioskMode() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Kiosk", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.remoteUnsetKioskMode() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Exit Kiosk", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteLockDevice() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Lock", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    if (uiState.remoteStatus?.isDeviceOwner == true)
+                                        viewModel.remoteDisableCamera()
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Cam Off", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.remoteEnableCamera() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Cam On", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Mobile Alert Ringtone & Vibration Controls
         item {
             Card(

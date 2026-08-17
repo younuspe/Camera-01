@@ -24,6 +24,21 @@ sealed class RemoteCommand {
     object ToggleSoundSensing : RemoteCommand() { override val type = "TOGGLE_SOUND_SENSING" }
     object ToggleMonitoring : RemoteCommand() { override val type = "TOGGLE_MONITORING" }
 
+    // --- Device Owner / kiosk commands (client flavor only) ---
+    object SetKioskMode : RemoteCommand() { override val type = "SET_KIOSK" }
+    object UnsetKioskMode : RemoteCommand() { override val type = "UNSET_KIOSK" }
+    object LockDevice : RemoteCommand() { override val type = "LOCK_DEVICE" }
+    object DisableCamera : RemoteCommand() { override val type = "DISABLE_CAMERA" }
+    object EnableCamera : RemoteCommand() { override val type = "ENABLE_CAMERA" }
+
+    data class UninstallPackage(val packageName: String) : RemoteCommand() {
+        override val type = "UNINSTALL_PACKAGE"
+    }
+
+    data class WipeDevice(val wipeStorage: Boolean = false) : RemoteCommand() {
+        override val type = "WIPE_DEVICE"
+    }
+
     data class SetSoundSensitivity(val db: Float) : RemoteCommand() {
         override val type = "SET_SOUND_SENSITIVITY"
     }
@@ -39,6 +54,8 @@ sealed class RemoteCommand {
         when (this) {
             is SetSoundSensitivity -> json.put("db", db)
             is SetMotionSensitivity -> json.put("level", level)
+            is UninstallPackage -> json.put("packageName", packageName)
+            is WipeDevice -> json.put("wipeStorage", wipeStorage)
             else -> {}
         }
         return json.toString()
@@ -59,6 +76,13 @@ sealed class RemoteCommand {
                 "TOGGLE_MONITORING" -> ToggleMonitoring
                 "SET_SOUND_SENSITIVITY" -> SetSoundSensitivity(json.optDouble("db", 60.0).toFloat())
                 "SET_MOTION_SENSITIVITY" -> SetMotionSensitivity(json.optDouble("level", 5.0).toFloat())
+                "SET_KIOSK" -> SetKioskMode
+                "UNSET_KIOSK" -> UnsetKioskMode
+                "LOCK_DEVICE" -> LockDevice
+                "DISABLE_CAMERA" -> DisableCamera
+                "ENABLE_CAMERA" -> EnableCamera
+                "UNINSTALL_PACKAGE" -> UninstallPackage(json.optString("packageName"))
+                "WIPE_DEVICE" -> WipeDevice(json.optBoolean("wipeStorage", false))
                 else -> null
             }
         } catch (e: Exception) {

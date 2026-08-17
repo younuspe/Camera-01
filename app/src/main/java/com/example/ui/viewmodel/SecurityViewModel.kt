@@ -72,7 +72,8 @@ data class SecurityUiState(
     val isRemoteBusConnected: Boolean = false, // Firebase command bus is initialized
     val remoteDeviceId: String = "",
     val isClientOnline: Boolean = false, // control side: is the client camera reachable
-    val remoteStatus: ClientStatus? = null // control side: latest status from client
+    val remoteStatus: ClientStatus? = null, // control side: latest status from client
+    val isDeviceOwner: Boolean = false // client side: app provisioned as Device Owner (kiosk/install)
 )
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -80,6 +81,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     private val repository: SecurityRepository
     private var audioCryAnalyzer: AudioCryAnalyzer? = null
     private val soundAlertManager = SoundAlertManager(application)
+    private val devicePolicyController = com.example.admin.DevicePolicyController(application)
 
     private val _uiState = MutableStateFlow(
         SecurityUiState(
@@ -132,6 +134,10 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             )
         }
 
+        if (BuildConfig.IS_CLIENT_DEVICE) {
+            _uiState.update { it.copy(isDeviceOwner = devicePolicyController.isDeviceOwner()) }
+        }
+
         if (!connected) return
 
         if (BuildConfig.IS_CLIENT_DEVICE) {
@@ -175,6 +181,16 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             is RemoteCommand.ToggleMonitoring -> toggleMonitoringActive()
             is RemoteCommand.SetSoundSensitivity -> setSoundSensitivityDb(command.db)
             is RemoteCommand.SetMotionSensitivity -> setSensitivity(command.level)
+            // --- Device Owner / kiosk commands (client flavor only) ---
+            is RemoteCommand.SetKioskMode -> devicePolicyController.setKioskMode(true)
+            is RemoteCommand.UnsetKioskMode -> devicePolicyController.setKioskMode(false)
+            is RemoteCommand.LockDevice -> devicePolicyController.lockNow()
+            is RemoteCommand.DisableCamera -> devicePolicyController.setCameraDisabled(true)
+            is RemoteCommand.EnableCamera -> devicePolicyController.setCameraDisabled(false)
+            is RemoteCommand.UninstallPackage ->
+                devicePolicyController.uninstallPackage(command.packageName)
+            is RemoteCommand.WipeDevice ->
+                devicePolicyController.wipeDevice(command.wipeStorage)
         }
         _uiState.update {
             it.copy(lastRemoteCommandText = "Executed remote command: ${command.type}")
@@ -198,7 +214,8 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                         isCryDetected = s.isCryDetected,
                         isMotionDetected = s.isMotionDetected,
                         lastCommandText = s.lastRemoteCommandText,
-                        online = true
+                        online = true,
+                        isDeviceOwner = s.isDeviceOwner
                     )
                 )
             }
@@ -246,6 +263,17 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             observeClientStatus()
         }
     }
+
+    // --- Device Owner / kiosk remote commands (control -> client) ---
+    fun remoteSetKioskMode() = sendRemoteCommand(RemoteCommand.SetKioskMode)
+    fun remoteUnsetKioskMode() = sendRemoteCommand(RemoteCommand.UnsetKioskMode)
+    fun remoteLockDevice() = sendRemoteCommand(RemoteCommand.LockDevice)
+    fun remoteDisableCamera() = sendRemoteCommand(RemoteCommand.DisableCamera)
+    fun remoteEnableCamera() = sendRemoteCommand(RemoteCommand.EnableCamera)
+    fun remoteUninstallPackage(packageName: String) =
+        sendRemoteCommand(RemoteCommand.UninstallPackage(packageName))
+    fun remoteWipeDevice(wipeStorage: Boolean = false) =
+        sendRemoteCommand(RemoteCommand.WipeDevice(wipeStorage))
 
     override fun onCleared() {
         super.onCleared()

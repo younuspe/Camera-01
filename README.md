@@ -69,9 +69,15 @@ code via `FirebaseCommandBus.setDeviceId(...)` or pair them to the same value.
 
 ### Supported remote commands
 
+**Camera & monitoring:**
 `ToggleLens`, `CycleFlash`, `ToggleTorch`, `ToggleArm`, `StartRecording`,
 `StopRecording`, `CapturePhoto`, `ToggleSoundSensing`, `ToggleMonitoring`,
 `SetSoundSensitivity(db)`, `SetMotionSensitivity(level)`.
+
+**Device Owner (kiosk / device control) — require the client to be provisioned
+as Device Owner (see below):**
+`SetKioskMode`, `UnsetKioskMode`, `LockDevice`, `DisableCamera`, `EnableCamera`,
+`UninstallPackage(packageName)`, `WipeDevice(wipeStorage)`.
 
 ---
 
@@ -133,16 +139,85 @@ when the JSON is missing (e.g. in CI / forks).
 
 ---
 
+## Device Owner setup (optional — for kiosk mode & silent install/uninstall)
+
+The elevated commands above (`SetKioskMode`, `UninstallPackage`, `WipeDevice`,
+`LockDevice`, `DisableCamera`) only work when the client (camera) app is
+provisioned as the **Device Owner**. This is a one-time, per-phone setup that
+requires a factory reset. Once provisioned the app can silently install /
+uninstall packages, lock itself to the foreground (kiosk), disable the camera,
+and wipe the device — all over Firebase remote commands.
+
+### Step 1 — Factory reset the client phone
+
+Settings → System → Reset → Erase all data. During setup, **do not sign in to
+a Google account** — Device Owner provisioning fails if any account exists.
+
+### Step 2 — Enable USB debugging
+
+Settings → About phone → tap "Build number" 7 times → Developer options → enable
+USB debugging. Connect the phone to a computer with ADB.
+
+### Step 3 — Set the app as Device Owner
+
+Install the client APK first (so the package exists), then run:
+
+```bash
+adb shell dpm set-device-owner com.example.client/.admin.ClientDeviceAdminReceiver
+```
+
+You should see `Success: Device owner set to package com.example.client`.
+
+### Step 4 — Verify
+
+The client status now reports `isDeviceOwner = true` (visible on the control
+phone's dashboard). All Device-Owner commands are now active.
+
+### How to undo
+
+Run `adb shell dpm remove-active-admin com.example.client/.admin.ClientDeviceAdminReceiver`
+or factory-reset the phone.
+
+> ⚠️ Device Owner provisioning **cannot be hidden** and **cannot be done without
+> a factory reset** — this is enforced by Android. The app remains visible in
+> Settings → Device admin apps.
+
+---
+
+## Foreground service (client)
+
+When the client flavor launches it starts `CameraForegroundService`, a
+foreground service of type `camera` that keeps the camera/mic alive while the
+app is backgrounded or the screen is off (required by Android 11+). This
+service shows a persistent notification ("Camera monitoring is active") that
+**cannot be hidden** — it is an OS requirement for background camera access.
+
+---
+
 ## Permissions
 
-Declared in `AndroidManifest.xml` and requested at runtime:
+Declared in `AndroidManifest.xml`:
 
 - `CAMERA` — camera preview & capture
 - `RECORD_AUDIO` — cry/sound detection
 - `VIBRATE` — alert vibration
+- `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CAMERA` — keep the camera alive in the background
+- `POST_NOTIFICATIONS` — the foreground-service notification (Android 13+)
+- `QUERY_ALL_PACKAGES` — only used by Device-Owner commands (silent uninstall of any package)
 
-No `INTERNET` permission is declared manually — Firebase brings its own and
-only connects when configured.
+### Auto-granting runtime permissions (no popups)
+
+Install the APK via ADB with the `-g` flag to silently grant all **runtime**
+permissions (camera, mic, notifications, vibrate) without showing the user any
+popup. `deploy_android.bat` already uses `adb install -r -g`:
+
+```bash
+adb install -r -g app/build/outputs/apk/client/debug/app-client-debug.apk
+```
+
+`-g` does **not** grant special permissions (overlay, screen capture,
+all-files access, Device Owner) — those still require the manual / provisioning
+steps described above.
 
 ---
 
@@ -154,11 +229,15 @@ app/
   src/
     main/                       # shared code (UI, camera, audio, Room, remote bus)
       java/com/example/
+        admin/                  # ClientDeviceAdminReceiver + DevicePolicyController
         remote/                 # RemoteCommand, FirebaseCommandBus, DevicePairing, ClientStatus
+        service/               # CameraForegroundService (keeps camera alive in background)
         ui/viewmodel/SecurityViewModel.kt   # wires command bus + flavor behavior
-      AndroidManifest.xml
+      AndroidManifest.xml       # permissions, device-admin receiver, foreground service
+      res/xml/client_device_admin.xml  # device-admin policies
     control/res/values/strings.xml   # app_name = "Cam Guard – Control"
     client/res/values/strings.xml   # app_name = "Cam Guard – Camera"
-.github/workflows/android-build.yml  # builds both APKs
+deploy_android.bat             # install + launch for control or client APK
+README.md                       # this file
 ```
 
