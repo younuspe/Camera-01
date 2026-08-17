@@ -138,6 +138,23 @@ class CameraForegroundService : Service() {
             }
         }
 
+        /**
+         * Start an arbitrary activity from the background / locked-screen state.
+         * Because this is called from (and re-arms) a running foreground service,
+         * Android 10+ treats it as a foreground-initiated activity start and
+         * permits it even when the screen is off. Used by the LaunchApp remote
+         * command so the control phone can open apps on the client.
+         */
+        fun launchActivity(context: Context, intent: Intent) {
+            start(context) // ensure the foreground service is running
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "launchActivity failed: ${e.message}")
+            }
+        }
+
         fun stop(context: Context) {
             try {
                 context.stopService(Intent(context, CameraForegroundService::class.java))

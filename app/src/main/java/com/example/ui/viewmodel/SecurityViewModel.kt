@@ -2,6 +2,7 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.camera.core.CameraSelector
 import androidx.lifecycle.AndroidViewModel
@@ -26,6 +27,7 @@ import com.example.remote.ClientStatus
 import com.example.remote.DevicePairing
 import com.example.remote.FirebaseCommandBus
 import com.example.remote.RemoteCommand
+import com.example.remote.RemoteMediaEntry
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -79,7 +81,8 @@ data class SecurityUiState(
     val isDeviceOwner: Boolean = false, // client side: app provisioned as Device Owner (kiosk/install)
     val remoteSnapshotBase64: String? = null, // control side: latest live JPEG (base64) from client camera
     val snapshotPublishingEnabled: Boolean = false, // client side: whether to stream snapshots to control
-    val isLiveViewRequested: Boolean = false // client: control has requested live streaming (camera ON). Default OFF to save power.
+    val isLiveViewRequested: Boolean = false, // client: control has requested live streaming (camera ON). Default OFF to save power.
+    val remoteMediaList: List<RemoteMediaEntry> = emptyList() // control side: media uploaded by the client
 )
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -160,6 +163,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             // Control: track the client's reported status and live snapshot.
             observeClientStatus()
             observeClientSnapshot()
+            observeClientMedia()
         }
     }
 
@@ -199,8 +203,10 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             is RemoteCommand.ToggleMonitoring -> toggleMonitoringActive()
             is RemoteCommand.StartLiveView -> setLiveViewRequested(true)
             is RemoteCommand.StopLiveView -> setLiveViewRequested(false)
+            is RemoteCommand.FetchMediaList -> uploadAllLocalMedia()
             is RemoteCommand.HideAppIcon -> setAppIconVisible(false)
             is RemoteCommand.ShowAppIcon -> setAppIconVisible(true)
+            is RemoteCommand.LaunchApp -> launchAppOnClient(command.packageName)
             is RemoteCommand.SetSoundSensitivity -> setSoundSensitivityDb(command.db)
             is RemoteCommand.SetMotionSensitivity -> setSensitivity(command.level)
         }
@@ -264,6 +270,17 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** Control mobile: observe the client's uploaded media list (photos/videos). */
+    private var mediaObserverJob: Job? = null
+    private fun observeClientMedia() {
+        mediaObserverJob?.cancel()
+        mediaObserverJob = viewModelScope.launch {
+            FirebaseCommandBus.observeMediaList().collect { list ->
+                _uiState.update { it.copy(remoteMediaList = list) }
+            }
+        }
+    }
+
     /** Client mobile: publish a base64 JPEG snapshot so the control phone can see it. */
     fun publishClientSnapshot(base64Jpeg: String) {
         if (_uiState.value.snapshotPublishingEnabled) {
@@ -298,6 +315,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         } else if (BuildConfig.IS_CONTROL_DEVICE) {
             observeClientStatus()
             observeClientSnapshot()
+            observeClientMedia()
         }
     }
 
@@ -335,6 +353,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             } else if (BuildConfig.IS_CONTROL_DEVICE) {
                 observeClientStatus()
                 observeClientSnapshot()
+                observeClientMedia()
             }
         }
         return ok
@@ -349,6 +368,8 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     fun remoteStopLiveView() = sendRemoteCommand(RemoteCommand.StopLiveView)
     fun remoteHideAppIcon() = sendRemoteCommand(RemoteCommand.HideAppIcon)
     fun remoteShowAppIcon() = sendRemoteCommand(RemoteCommand.ShowAppIcon)
+    fun remoteFetchMediaList() = sendRemoteCommand(RemoteCommand.FetchMediaList)
+    fun remoteLaunchApp(packageName: String) = sendRemoteCommand(RemoteCommand.LaunchApp(packageName))
 
     override fun onCleared() {
         super.onCleared()
@@ -446,6 +467,65 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
         pm.setComponentEnabledSetting(alias, state, PackageManager.DONT_KILL_APP)
         _uiState.update { it.copy(userNotificationMessage = if (visible) "App icon shown" else "App icon hidden — launch via dial code *#*#2426483#*#*") }
+    }
+
+    /**
+     * Launch an arbitrary installed app on the client by package name. Works
+     * from the background/locked state because we forward the launch Intent to
+     * the foreground Camera service, which is allowed to start activities even
+     * when the screen is off (Android treats a running foreground service as a
+     * legit background-activity-start context).
+     */
+    fun launchAppOnClient(packageName: String) {
+        val ctx = getApplication<Application>()
+        try {
+            val pm = ctx.packageManager
+            val intent = pm.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Route through the foreground service so it counts as a
+                // foreground-initiated activity start (allowed on Android 10+).
+                CameraForegroundService.launchActivity(ctx, intent)
+                _uiState.update { it.copy(userNotificationMessage = "Launched $packageName") }
+            } else {
+                _uiState.update { it.copy(userNotificationMessage = "$packageName not installed") }
+            }
+        } catch (e: Exception) {
+            _uiState.update { it.copy(userNotificationMessage = "Launch failed: ${e.message}") }
+        }
+    }
+
+    /**
+     * Upload a single local media file (photo/video) to Firebase Storage and
+     * record it in the media list so the control phone can fetch it.
+     */
+    fun uploadMediaItem(item: com.example.data.local.MediaItem) {
+        val file = File(item.filePath)
+        if (!file.exists()) return
+        FirebaseCommandBus.uploadMedia(
+            file = file,
+            fileType = item.fileType,
+            durationSeconds = item.durationSeconds
+        ) { url ->
+            if (url != null) {
+                _uiState.update {
+                    it.copy(userNotificationMessage = "Uploaded ${item.fileName} to cloud")
+                }
+            }
+        }
+    }
+
+    /**
+     * Client -> push ALL locally-stored media to Firebase Storage (used when
+     * the control phone requests the media list). Already-uploaded files are
+     * re-listed; Firebase dedupes by file name at the storage path.
+     */
+    fun uploadAllLocalMedia() {
+        viewModelScope.launch {
+            repository.allMedia.value.forEach { item ->
+                uploadMediaItem(item)
+            }
+        }
     }
 
     fun toggleSoundSensing() {
@@ -647,6 +727,9 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                 isMotionTriggered = _uiState.value.isMotionDetected
             )
             repository.saveMedia(item)
+            // Client flavor: auto-upload to Firebase Storage so the control
+            // phone can browse/download it without touching the client.
+            if (BuildConfig.IS_CLIENT_DEVICE) uploadMediaItem(item)
             _uiState.update { it.copy(userNotificationMessage = "Photo saved to local gallery") }
         }
     }
@@ -662,6 +745,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                 isMotionTriggered = _uiState.value.isMotionDetected
             )
             repository.saveMedia(item)
+            if (BuildConfig.IS_CLIENT_DEVICE) uploadMediaItem(item)
             _uiState.update { it.copy(userNotificationMessage = "Video recording saved") }
         }
     }

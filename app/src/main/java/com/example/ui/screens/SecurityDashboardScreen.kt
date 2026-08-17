@@ -25,11 +25,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -40,8 +43,10 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
@@ -49,6 +54,7 @@ import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,7 +72,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -885,6 +894,178 @@ fun SecurityDashboardScreen(
         } else {
             items(motionEvents.take(15)) { event ->
                 MotionEventRow(event = event)
+            }
+        }
+
+        // Remote App Launcher (control flavor). Type a package name and open it
+        // on the client — works even with the client screen locked because the
+        // launch is routed through the client's foreground service.
+        if (uiState.isControlDevice) {
+            item {
+                var pkgInput by remember { mutableStateOf("") }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Apps,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open App on Client",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Launch any installed app on the client phone by package name (e.g. com.whatsapp). Works while the client screen is locked.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        androidx.compose.material3.OutlinedTextField(
+                            value = pkgInput,
+                            onValueChange = { pkgInput = it.trim() },
+                            label = { Text("Package name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (pkgInput.isNotBlank()) {
+                                    viewModel.remoteLaunchApp(pkgInput)
+                                }
+                            },
+                            enabled = pkgInput.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp), tint = SlateDark)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Launch on Client", color = SlateDark)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Cloud Media (control flavor). Browse photos/videos the client
+        // auto-uploaded to Firebase Storage and download them here.
+        if (uiState.isControlDevice) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SlateCard),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = null,
+                                tint = ActiveGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Cloud Media from Client",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Recordings and photos the client captured are uploaded to Firebase Storage automatically. Tap Refresh to pull the latest list.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.remoteFetchMediaList() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Refresh", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (uiState.remoteMediaList.isEmpty()) {
+                            Text(
+                                text = "No media uploaded yet. Trigger a recording or photo on the client, then tap Refresh.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted
+                            )
+                        } else {
+                            uiState.remoteMediaList.forEach { entry ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (entry.fileType == "VIDEO")
+                                            Icons.Default.VideoFile else Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = entry.fileName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = TextPrimary,
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = "${entry.fileType} • ${(entry.sizeBytes / 1024)} KB",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextMuted,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                                    OutlinedButton(
+                                        onClick = {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(entry.url))
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            ctx.startActivity(intent)
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ActiveGreen),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Open", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

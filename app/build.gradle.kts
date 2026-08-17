@@ -145,6 +145,7 @@ dependencies {
     // gracefully and the app stays in local-only mode.
     implementation(platform("com.google.firebase:firebase-bom:32.7.3"))
     implementation("com.google.firebase:firebase-database-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-common-ktx")
 
     // Unit/instrumentation tests

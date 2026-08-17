@@ -91,6 +91,20 @@ data class ClientStatus(
 }
 
 /**
+ * A media entry (photo/video) the client uploaded to Cloud Storage and listed
+ * in the Realtime Database under /devices/{deviceId}/media. The control phone
+ * observes this list to browse/download the client's recordings.
+ */
+data class RemoteMediaEntry(
+    val fileName: String,
+    val fileType: String,   // "PHOTO" or "VIDEO"
+    val url: String,        // Firebase Storage download URL
+    val durationSeconds: Long = 0L,
+    val sizeBytes: Long = 0L,
+    val uploadedAt: Long = 0L
+)
+
+/**
  * Thin wrapper over Firebase Realtime Database used as the command/status bus
  * between the control mobile and the client (camera) mobile.
  *
@@ -231,6 +245,89 @@ object FirebaseCommandBus {
 
     private fun snapshotRef(): DatabaseReference? =
         database?.reference?.child("devices")?.child(pairing.deviceId)?.child("snapshot")
+
+    private fun mediaRef(): DatabaseReference? =
+        database?.reference?.child("devices")?.child(pairing.deviceId)?.child("media")
+
+    /**
+     * Storage path for a media file uploaded by the client:
+     *   media/{deviceId}/{fileName}
+     */
+    private fun storageRef(fileName: String): com.google.firebase.storage.StorageReference? {
+        if (database == null) return null
+        return try {
+            com.google.firebase.storage.FirebaseStorage.getInstance().reference
+                .child("media")
+                .child(pairing.deviceId)
+                .child(fileName)
+        } catch (e: Exception) {
+            Log.w(TAG, "Storage unavailable: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Client -> upload a media file (photo/video) to Firebase Cloud Storage and
+     * record its download URL + metadata under /devices/{deviceId}/media so the
+     * control phone can browse and fetch it. Returns the download URL on success.
+     */
+    fun uploadMedia(file: java.io.File, fileType: String, durationSeconds: Long = 0L,
+                    onDone: (String?) -> Unit) {
+        val ref = storageRef(file.name)
+        if (ref == null) { onDone(null); return }
+        ref.putFile(android.net.Uri.fromFile(file))
+            .continueWithTask { it.result?.storage?.downloadUrl }
+            .addOnSuccessListener { uri ->
+                val entry = org.json.JSONObject()
+                entry.put("fileName", file.name)
+                entry.put("fileType", fileType)
+                entry.put("url", uri.toString())
+                entry.put("durationSeconds", durationSeconds)
+                entry.put("sizeBytes", file.length())
+                entry.put("uploadedAt", System.currentTimeMillis())
+                mediaRef()?.push()?.setValue(entry.toString())
+                Log.i(TAG, "Media uploaded: ${file.name}")
+                onDone(uri.toString())
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "Media upload failed: ${e.message}")
+                onDone(null)
+            }
+    }
+
+    /**
+     * Control -> observe the client's uploaded media list. Emits the full list
+     * each time the client adds an entry.
+     */
+    fun observeMediaList(): Flow<List<RemoteMediaEntry>> = callbackFlow {
+        val ref = mediaRef()
+        if (ref == null) { close(); return@callbackFlow }
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val items = mutableListOf<RemoteMediaEntry>()
+                snapshot.children.forEach { child ->
+                    val raw = child.getValue(String::class.java) ?: return@forEach
+                    try {
+                        val j = org.json.JSONObject(raw)
+                        items.add(
+                            RemoteMediaEntry(
+                                fileName = j.optString("fileName"),
+                                fileType = j.optString("fileType"),
+                                url = j.optString("url"),
+                                durationSeconds = j.optLong("durationSeconds", 0L),
+                                sizeBytes = j.optLong("sizeBytes", 0L),
+                                uploadedAt = j.optLong("uploadedAt", 0L)
+                            )
+                        )
+                    } catch (_: Exception) {}
+                }
+                trySend(items.sortedByDescending { it.uploadedAt })
+            }
+            override fun onCancelled(error: DatabaseError) { close(error.toException()) }
+        }
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
 
     /** Control mobile -> push a command for the client to execute. */
     fun sendCommand(command: RemoteCommand): Boolean {

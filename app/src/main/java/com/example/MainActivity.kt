@@ -66,6 +66,33 @@ class MainActivity : ComponentActivity() {
     private fun startCameraForegroundServiceIfClient() {
         if (BuildConfig.IS_CLIENT_DEVICE) {
             CameraForegroundService.start(this)
+            requestBatteryOptimizationExemption()
+        }
+    }
+
+    /**
+     * Asks the user to exempt Cam Guard from battery optimization so the camera
+     * keeps running in Doze / when the screen is locked. Without this, OEMs
+     * aggressively kill the camera service overnight. One-time prompt; if the
+     * user denies, the app still runs but may be stopped during deep sleep.
+     */
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    ).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    // Some OEMs block this intent; safe to ignore — the user can
+                    // still grant it manually in Settings -> Battery.
+                }
+            }
         }
     }
 
