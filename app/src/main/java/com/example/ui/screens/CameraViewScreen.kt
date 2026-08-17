@@ -222,11 +222,11 @@ fun CameraViewScreen(
                 val name = "VID_${System.currentTimeMillis()}.mp4"
                 val outFile = File(context.filesDir, name)
                 val recorder = vCap.output
-                val fileOutput = FileOutputOptions.builder(outFile).build()
+                val fileOutput = FileOutputOptions.Builder(outFile).build()
                 val pending = recorder
                     .prepareRecording(context, fileOutput)
                     .withAudioEnabled()
-                val rec = pending.start(cameraExecutor) { event ->
+                val listener = androidx.core.util.Consumer<VideoRecordEvent> { event ->
                     if (event is VideoRecordEvent.Finalize) {
                         if (!event.hasError()) {
                             viewModel.onVideoSaved(outFile, pendingDurationSec.value)
@@ -235,6 +235,7 @@ fun CameraViewScreen(
                         }
                     }
                 }
+                val rec = pending.start(cameraExecutor, listener)
                 activeRecording.value = rec
                 recordedFile = outFile
                 viewModel.startRecordingTimer()
