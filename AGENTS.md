@@ -48,5 +48,7 @@ workflow files, the user must push them, or grant a token with `workflow` scope.
 
 ## Branch / PR
 - Branch: `feature/dual-apk-firebase` → PR #2.
-- As of last update: Build Debug APK passes ✓. Upload step needs the workflow fix
-  (queued locally, blocked by token scope — see above).
+- CI is fully green: `Build Debug APKs` + `Upload Control (dashboard) APK` +
+  `Upload Camera (client) APK` all pass. Artifacts: `CamGuard-Control-debug-apk`
+  and `CamGuard-Camera-debug-apk`. The workflow fix required a token with
+  `workflow` scope (provided by the user) — see the CI gotcha above.
