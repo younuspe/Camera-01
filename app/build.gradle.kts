@@ -17,9 +17,12 @@ android {
     }
 
     // Two build targets: the "control" mobile (viewer/monitor side) and the
-    // "client" mobile (the camera device being monitored). Each flavor gets a
-    // distinct applicationId suffix so both APKs can be installed side-by-side,
-    // and a BuildConfig flag so the app can branch behavior at runtime.
+    // "client" mobile (the camera device being monitored). The client flavor's
+    // internal name is "client" (matches IS_CLIENT_DEVICE / .client appId used
+    // throughout the codebase); its user-facing label and version suffix say
+    // "Camera" to match the "Cam Guard – Camera" branding. Each flavor gets a
+    // distinct applicationId suffix so both APKs install side-by-side, and a
+    // BuildConfig flag so the app can branch behavior at runtime.
     flavorDimensions += "role"
     productFlavors {
         create("control") {
@@ -33,10 +36,10 @@ android {
         create("client") {
             dimension = "role"
             applicationIdSuffix = ".client"
-            versionNameSuffix = "-client"
+            versionNameSuffix = "-camera"
             buildConfigField("boolean", "IS_CONTROL_DEVICE", "false")
             buildConfigField("boolean", "IS_CLIENT_DEVICE", "true")
-            resValue("string", "app_role_label", "Camera Mobile (Client)")
+            resValue("string", "app_role_label", "Camera Mobile")
         }
     }
 
