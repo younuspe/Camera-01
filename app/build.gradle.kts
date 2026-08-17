@@ -71,14 +71,14 @@ android {
     // (fewer "unknown developer" Play Protect warnings than an unsigned one).
     val keystorePath = System.getenv("CAMGUARD_KEYSTORE_PATH") ?: "debug.keystore"
     val keystorePass = System.getenv("CAMGUARD_KEYSTORE_PASS") ?: "android"
-    val keyAlias = System.getenv("CAMGUARD_KEY_ALIAS") ?: "androiddebugkey"
-    val keyPass = System.getenv("CAMGUARD_KEY_PASS") ?: "android"
+    val keyAliasVal = System.getenv("CAMGUARD_KEY_ALIAS") ?: "androiddebugkey"
+    val keyPassVal = System.getenv("CAMGUARD_KEY_PASS") ?: "android"
     signingConfigs {
         create("release") {
             storeFile = file(keystorePath)
             storePassword = keystorePass
-            keyAlias = keyAlias
-            keyPassword = keyPass
+            keyAlias = keyAliasVal
+            keyPassword = keyPassVal
             enableV1Signing = true
             enableV2Signing = true
         }
