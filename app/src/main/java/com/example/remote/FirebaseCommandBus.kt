@@ -158,10 +158,10 @@ object FirebaseCommandBus {
         }
         return try {
             val options = FirebaseOptions.Builder()
-                .setApiKey(config.firebaseApiKey)
-                .setDatabaseUrl(config.firebaseDatabaseUrl)
-                .setApplicationId(config.firebaseAppId)
-                .setProjectId(config.firebaseProjectId)
+                .setApiKey(config.firebaseApiKey!!)
+                .setDatabaseUrl(config.firebaseDatabaseUrl!!)
+                .setApplicationId(config.firebaseAppId!!)
+                .setProjectId(config.firebaseProjectId!!)
                 .build()
             val app = FirebaseApp.initializeApp(context, options, APP_NAME)
             val db = FirebaseDatabase.getInstance(app).apply { setPersistenceEnabled(true) }
