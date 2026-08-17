@@ -21,6 +21,7 @@ import com.example.BuildConfig
 import com.example.audio.AudioCryAnalyzer
 import com.example.audio.SoundAlertManager
 import com.example.remote.ClientStatus
+import com.example.remote.DevicePairing
 import com.example.remote.FirebaseCommandBus
 import com.example.remote.RemoteCommand
 import java.io.File

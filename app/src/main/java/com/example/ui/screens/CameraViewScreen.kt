@@ -10,10 +10,14 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
-import androidx.camera.core.Recorder
-import androidx.camera.core.VideoCapture
-import androidx.camera.core.VideoRecordEvent
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -119,7 +123,7 @@ fun CameraViewScreen(
     var previewView: PreviewView? by remember { mutableStateOf(null) }
     var videoCapture: VideoCapture<Recorder>? by remember { mutableStateOf(null) }
     // Handle to the active recording so we can stop it; null when not recording.
-    val activeRecording = remember { mutableStateOf<androidx.camera.core.Recording?>(null) }
+    val activeRecording = remember { mutableStateOf<Recording?>(null) }
     var recordedFile by remember { mutableStateOf<File?>(null) }
     // Duration (seconds) captured at stop time, read when Finalize fires.
     val pendingDurationSec = remember { mutableStateOf(0L) }
@@ -165,7 +169,7 @@ fun CameraViewScreen(
 
                     // Real video recording: CameraX Recorder -> VideoCapture use case.
                     val recorder = Recorder.Builder()
-                        .setQualitySelector(androidx.camera.core.QualitySelector.from(androidx.camera.core.Quality.HD))
+                        .setQualitySelector(QualitySelector.from(Quality.HD))
                         .build()
                     val vCapture = VideoCapture.withOutput(recorder)
 
@@ -218,7 +222,7 @@ fun CameraViewScreen(
                 val name = "VID_${System.currentTimeMillis()}.mp4"
                 val outFile = File(context.filesDir, name)
                 val recorder = vCap.output
-                val fileOutput = androidx.camera.core.FileOutputOptions.builder(outFile).build()
+                val fileOutput = FileOutputOptions.builder(outFile).build()
                 val pending = recorder
                     .prepareRecording(context, fileOutput)
                     .withAudioEnabled()
