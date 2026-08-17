@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.CameraViewScreen
 import com.example.ui.screens.GalleryScreen
+import com.example.ui.screens.PairingSetupScreen
 import com.example.ui.screens.SecurityDashboardScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.CyanAccent
@@ -53,6 +54,7 @@ fun MainNavContainer(
     initialTab: NavTab = NavTab.CAMERA
 ) {
     var selectedTab by remember { mutableStateOf(initialTab) }
+    var showPairing by remember { mutableStateOf(false) }
 
     val uiState by viewModel.uiState.collectAsState()
     val mediaItems by viewModel.mediaItems.collectAsState()
@@ -125,6 +127,19 @@ fun MainNavContainer(
         // On the client flavor the only screen is the camera; lock it there.
         val activeTab = if (showNavBar) selectedTab else NavTab.CAMERA
 
+        // First-run gating: if this phone isn't paired to Firebase yet, force
+        // the pairing screen up so the user can enter config. The client has no
+        // nav bar to reach Settings, so it must be surfaced automatically.
+        val needsPairing = !uiState.isRemoteBusConnected
+        if (needsPairing || showPairing) {
+            PairingSetupScreen(
+                viewModel = viewModel,
+                onBack = { showPairing = false },
+                modifier = Modifier.fillMaxSize()
+            )
+            return@Scaffold
+        }
+
         when (activeTab) {
             NavTab.CAMERA -> CameraViewScreen(
                 viewModel = viewModel,
@@ -146,6 +161,7 @@ fun MainNavContainer(
             NavTab.SETTINGS -> SettingsScreen(
                 viewModel = viewModel,
                 uiState = uiState,
+                onOpenPairing = { showPairing = true },
                 modifier = screenModifier
             )
         }

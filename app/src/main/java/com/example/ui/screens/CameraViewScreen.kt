@@ -10,6 +10,9 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.Recorder
+import androidx.camera.core.VideoCapture
+import androidx.camera.core.VideoRecordEvent
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
@@ -114,6 +117,12 @@ fun CameraViewScreen(
 
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     var previewView: PreviewView? by remember { mutableStateOf(null) }
+    var videoCapture: VideoCapture<Recorder>? by remember { mutableStateOf(null) }
+    // Handle to the active recording so we can stop it; null when not recording.
+    val activeRecording = remember { mutableStateOf<androidx.camera.core.Recording?>(null) }
+    var recordedFile by remember { mutableStateOf<File?>(null) }
+    // Duration (seconds) captured at stop time, read when Finalize fires.
+    val pendingDurationSec = remember { mutableStateOf(0L) }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
@@ -154,7 +163,13 @@ fun CameraViewScreen(
                         )
                         .build()
 
-                    val useCases = mutableListOf<androidx.camera.core.UseCase>(preview, capture)
+                    // Real video recording: CameraX Recorder -> VideoCapture use case.
+                    val recorder = Recorder.Builder()
+                        .setQualitySelector(androidx.camera.core.QualitySelector.from(androidx.camera.core.Quality.HD))
+                        .build()
+                    val vCapture = VideoCapture.withOutput(recorder)
+
+                    val useCases = mutableListOf<androidx.camera.core.UseCase>(preview, capture, vCapture)
 
                     if (uiState.enableMotionSensing) {
                         val analysis = androidx.camera.core.ImageAnalysis.Builder()
@@ -178,6 +193,7 @@ fun CameraViewScreen(
                             *useCases.toTypedArray()
                         )
                         imageCapture = capture
+                        videoCapture = vCapture
                     }
                 }
             } catch (e: Exception) {
@@ -189,6 +205,43 @@ fun CameraViewScreen(
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
+        }
+    }
+
+    // React to recording state changes (local button OR remote Firebase command):
+    // start/stop the real CameraX recording to match uiState.isRecording.
+    LaunchedEffect(uiState.isRecording) {
+        val vCap = videoCapture
+        if (uiState.isRecording) {
+            // Only start if not already recording (avoid double-start).
+            if (activeRecording.value == null && vCap != null) {
+                val name = "VID_${System.currentTimeMillis()}.mp4"
+                val outFile = File(context.filesDir, name)
+                val recorder = vCap.output
+                val fileOutput = androidx.camera.core.FileOutputOptions.builder(outFile).build()
+                val pending = recorder
+                    .prepareRecording(context, fileOutput)
+                    .withAudioEnabled()
+                val rec = pending.start(cameraExecutor) { event ->
+                    if (event is VideoRecordEvent.Finalize) {
+                        if (!event.hasError()) {
+                            viewModel.onVideoSaved(outFile, pendingDurationSec.value)
+                        } else {
+                            Log.e("CameraViewScreen", "Recording error: ${event.error}")
+                        }
+                    }
+                }
+                activeRecording.value = rec
+                recordedFile = outFile
+                viewModel.startRecordingTimer()
+            }
+        } else {
+            // Stop any active recording.
+            if (activeRecording.value != null) {
+                pendingDurationSec.value = viewModel.stopRecordingTimer()
+                activeRecording.value?.stop()
+                activeRecording.value = null
+            }
         }
     }
 
@@ -544,24 +597,19 @@ fun CameraViewScreen(
                     }
                 }
 
-                // Record Video Toggle
+                // Record Video Toggle — flips isRecording; the LaunchedEffect
+                // above starts/stops the real CameraX recording to match state.
+                // This makes both the local button and remote Firebase commands work.
                 Box(
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
                         .background(if (uiState.isRecording) LiveRed else SlateCard)
                         .clickable {
-                            if (uiState.isRecording) {
-                                val dur = viewModel.stopRecordingTimer()
-                                // Save video record entry
-                                val sampleVideoFile = File(context.filesDir, "VID_${System.currentTimeMillis()}.mp4")
-                                if (!sampleVideoFile.exists()) {
-                                    sampleVideoFile.createNewFile()
-                                }
-                                viewModel.onVideoSaved(sampleVideoFile, dur)
+                            if (videoCapture == null) {
+                                Toast.makeText(context, "Camera not ready", Toast.LENGTH_SHORT).show()
                             } else {
-                                viewModel.startRecordingTimer()
-                                Toast.makeText(context, "Video recording started", Toast.LENGTH_SHORT).show()
+                                viewModel.toggleRecording()
                             }
                         }
                         .testTag("record_video_button"),

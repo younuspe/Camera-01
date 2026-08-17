@@ -178,8 +178,14 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             is RemoteCommand.CycleFlash -> cycleFlashMode()
             is RemoteCommand.ToggleTorch -> cycleFlashMode() // torch == flash auto/on cycle
             is RemoteCommand.ToggleArm -> toggleSystemArm()
-            is RemoteCommand.StartRecording -> startRecordingTimer()
-            is RemoteCommand.StopRecording -> stopRecordingTimer()
+            is RemoteCommand.StartRecording -> {
+                // Drive recording via the single isRecording flag so the UI's
+                // LaunchedEffect starts the real CameraX recorder + timer.
+                if (!_uiState.value.isRecording) _uiState.update { it.copy(isRecording = true) }
+            }
+            is RemoteCommand.StopRecording -> {
+                if (_uiState.value.isRecording) _uiState.update { it.copy(isRecording = false) }
+            }
             is RemoteCommand.CapturePhoto -> {
                 _uiState.update {
                     it.copy(userNotificationMessage = "Remote photo capture requested")
@@ -296,6 +302,49 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             observeClientSnapshot()
         }
     }
+
+    /**
+     * Apply a full manual Firebase pairing entered by the user on the Setup
+     * screen. Saves the config, (re)initializes the Firebase command bus, and
+     * re-arms the role-appropriate observers. Returns true on success.
+     */
+    fun applyManualPairing(
+        deviceId: String,
+        firebaseApiKey: String,
+        firebaseDatabaseUrl: String,
+        firebaseAppId: String,
+        firebaseProjectId: String
+    ): Boolean {
+        val config = DevicePairing(
+            deviceId = deviceId.trim(),
+            firebaseApiKey = firebaseApiKey.trim(),
+            firebaseDatabaseUrl = firebaseDatabaseUrl.trim(),
+            firebaseAppId = firebaseAppId.trim(),
+            firebaseProjectId = firebaseProjectId.trim()
+        )
+        val ok = FirebaseCommandBus.initManual(getApplication(), config)
+        _uiState.update {
+            it.copy(
+                remoteDeviceId = config.deviceId,
+                isRemoteBusConnected = ok
+            )
+        }
+        if (ok) {
+            if (BuildConfig.IS_CLIENT_DEVICE) {
+                listenForRemoteCommands()
+                startPublishingClientStatus()
+                FirebaseCommandBus.setOnline(true)
+            } else if (BuildConfig.IS_CONTROL_DEVICE) {
+                observeClientStatus()
+                observeClientSnapshot()
+            }
+        }
+        return ok
+    }
+
+    /** The currently saved pairing config (so the Setup screen can pre-fill fields). */
+    fun currentSavedPairing(): DevicePairing =
+        FirebaseCommandBus.restoreSavedPairing(getApplication())
 
     // --- Device Owner / kiosk remote commands (control -> client) ---
     fun remoteSetKioskMode() = sendRemoteCommand(RemoteCommand.SetKioskMode)
@@ -549,6 +598,17 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         timerJob?.cancel()
         _uiState.update { it.copy(isRecording = false, recordingDurationSeconds = 0) }
         return duration
+    }
+
+    /**
+     * Toggle recording state. Only flips the [SecurityUiState.isRecording] flag;
+     * the CameraViewScreen LaunchedEffect reacts to that flag and starts/stops
+     * the real CameraX recording + timer. This keeps a single source of truth
+     * so both the local button and remote Firebase commands drive the recorder.
+     */
+    fun toggleRecording() {
+        val nowRecording = !_uiState.value.isRecording
+        _uiState.update { it.copy(isRecording = nowRecording) }
     }
 
     fun onPhotoSaved(file: File, locationText: String? = null) {
