@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -16,8 +17,33 @@ android {
         versionName = "1.0"
     }
 
+    // Two build targets: the "control" mobile (viewer/monitor side) and the
+    // "client" mobile (the camera device being monitored). Each flavor gets a
+    // distinct applicationId suffix so both APKs can be installed side-by-side,
+    // and a BuildConfig flag so the app can branch behavior at runtime.
+    flavorDimensions += "role"
+    productFlavors {
+        create("control") {
+            dimension = "role"
+            applicationIdSuffix = ".control"
+            versionNameSuffix = "-control"
+            buildConfigField("boolean", "IS_CONTROL_DEVICE", "true")
+            buildConfigField("boolean", "IS_CLIENT_DEVICE", "false")
+            resValue("string", "app_role_label", "Control Mobile")
+        }
+        create("client") {
+            dimension = "role"
+            applicationIdSuffix = ".client"
+            versionNameSuffix = "-client"
+            buildConfigField("boolean", "IS_CONTROL_DEVICE", "false")
+            buildConfigField("boolean", "IS_CLIENT_DEVICE", "true")
+            resValue("string", "app_role_label", "Camera Mobile (Client)")
+        }
+    }
+
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -73,8 +99,18 @@ dependencies {
     // Coroutines / networking / images
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Firebase Realtime Database — used for control -> client remote commands
+    // and client -> control status updates. No google-services.json is required
+    // for the build to pass (gradle.properties sets
+    // googleServices.missing.passthrough=true); at runtime the bus no-ops
+    // gracefully until a config is present.
+    implementation(platform("com.google.firebase:firebase-bom:32.7.3"))
+    implementation("com.google.firebase:firebase-database-ktx")
+    implementation("com.google.firebase:firebase-common-ktx")
 
     // Unit/instrumentation tests
     testImplementation("junit:junit:4.13.2")

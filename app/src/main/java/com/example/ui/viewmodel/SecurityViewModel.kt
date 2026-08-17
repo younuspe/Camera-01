@@ -17,8 +17,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.BuildConfig
 import com.example.audio.AudioCryAnalyzer
 import com.example.audio.SoundAlertManager
+import com.example.remote.ClientStatus
+import com.example.remote.FirebaseCommandBus
+import com.example.remote.RemoteCommand
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -62,7 +66,13 @@ data class SecurityUiState(
     val autoCaptureOnCry: Boolean = true,
     val autoDispatchToRemote: Boolean = true,
     val isHighQualityMode: Boolean = true, // Ultra High Picture Quality
-    val lastRemoteCommandText: String? = null
+    val lastRemoteCommandText: String? = null,
+    val isControlDevice: Boolean = false, // flavor-driven: this APK is the control/monitor side
+    val isClientDevice: Boolean = false, // flavor-driven: this APK is the camera device
+    val isRemoteBusConnected: Boolean = false, // Firebase command bus is initialized
+    val remoteDeviceId: String = "",
+    val isClientOnline: Boolean = false, // control side: is the client camera reachable
+    val remoteStatus: ClientStatus? = null // control side: latest status from client
 )
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,11 +81,20 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     private var audioCryAnalyzer: AudioCryAnalyzer? = null
     private val soundAlertManager = SoundAlertManager(application)
 
+    private val _uiState = MutableStateFlow(
+        SecurityUiState(
+            isControlDevice = BuildConfig.IS_CONTROL_DEVICE,
+            isClientDevice = BuildConfig.IS_CLIENT_DEVICE
+        )
+    )
+    val uiState: StateFlow<SecurityUiState> = _uiState.asStateFlow()
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = SecurityRepository(database.mediaItemDao(), database.motionEventDao())
-        
+
         setupAudioAnalyzer()
+        setupRemoteCommandBus(application)
     }
 
     private fun setupAudioAnalyzer() {
@@ -87,8 +106,156 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private val _uiState = MutableStateFlow(SecurityUiState())
-    val uiState: StateFlow<SecurityUiState> = _uiState.asStateFlow()
+    /**
+     * Wire up the Firebase command bus. The client (camera) mobile listens for
+     * incoming commands from the control mobile and reports its status back.
+     * The control mobile observes the client status and (optionally) sends
+     * commands when the user taps remote controls.
+     *
+     * When Firebase is not configured the bus no-ops and the app stays fully
+     * functional in local-only mode.
+     */
+    private fun setupRemoteCommandBus(context: android.content.Context) {
+        // Prefer a previously-saved manual pairing; fall back to the default
+        // Firebase app (google-services.json) if present.
+        val saved = FirebaseCommandBus.restoreSavedPairing(context)
+        val connected = if (saved.isConfigured()) {
+            FirebaseCommandBus.initManual(context, saved)
+        } else {
+            FirebaseCommandBus.initFromDefaultApp(context)
+        }
+
+        _uiState.update {
+            it.copy(
+                isRemoteBusConnected = connected,
+                remoteDeviceId = FirebaseCommandBus.deviceId
+            )
+        }
+
+        if (!connected) return
+
+        if (BuildConfig.IS_CLIENT_DEVICE) {
+            // Client: execute incoming commands and publish status.
+            listenForRemoteCommands()
+            startPublishingClientStatus()
+            FirebaseCommandBus.setOnline(true)
+        } else if (BuildConfig.IS_CONTROL_DEVICE) {
+            // Control: track the client's reported status.
+            observeClientStatus()
+        }
+    }
+
+    private var remoteCommandJob: Job? = null
+    private var statusPublishJob: Job? = null
+    private var statusObserverJob: Job? = null
+
+    private fun listenForRemoteCommands() {
+        remoteCommandJob?.cancel()
+        remoteCommandJob = viewModelScope.launch {
+            FirebaseCommandBus.observeCommands().collect { command ->
+                handleRemoteCommand(command)
+            }
+        }
+    }
+
+    private fun handleRemoteCommand(command: RemoteCommand) {
+        when (command) {
+            is RemoteCommand.ToggleLens -> toggleLensFacing()
+            is RemoteCommand.CycleFlash -> cycleFlashMode()
+            is RemoteCommand.ToggleTorch -> cycleFlashMode() // torch == flash auto/on cycle
+            is RemoteCommand.ToggleArm -> toggleSystemArm()
+            is RemoteCommand.StartRecording -> startRecordingTimer()
+            is RemoteCommand.StopRecording -> stopRecordingTimer()
+            is RemoteCommand.CapturePhoto -> {
+                _uiState.update {
+                    it.copy(userNotificationMessage = "Remote photo capture requested")
+                }
+            }
+            is RemoteCommand.ToggleSoundSensing -> toggleSoundSensing()
+            is RemoteCommand.ToggleMonitoring -> toggleMonitoringActive()
+            is RemoteCommand.SetSoundSensitivity -> setSoundSensitivityDb(command.db)
+            is RemoteCommand.SetMotionSensitivity -> setSensitivity(command.level)
+        }
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Executed remote command: ${command.type}")
+        }
+    }
+
+    private fun startPublishingClientStatus() {
+        statusPublishJob?.cancel()
+        statusPublishJob = viewModelScope.launch {
+            while (true) {
+                delay(2000)
+                val s = _uiState.value
+                FirebaseCommandBus.publishStatus(
+                    ClientStatus(
+                        lensFacing = s.lensFacing,
+                        flashMode = s.flashMode,
+                        isArmed = s.isSystemArmed,
+                        isMonitoringActive = s.isMonitoringActive,
+                        isRecording = s.isRecording,
+                        currentDecibels = s.currentDecibels,
+                        isCryDetected = s.isCryDetected,
+                        isMotionDetected = s.isMotionDetected,
+                        lastCommandText = s.lastRemoteCommandText,
+                        online = true
+                    )
+                )
+            }
+        }
+    }
+
+    private fun observeClientStatus() {
+        statusObserverJob?.cancel()
+        statusObserverJob = viewModelScope.launch {
+            FirebaseCommandBus.observeStatus().collect { status ->
+                _uiState.update {
+                    it.copy(
+                        isClientOnline = status.online,
+                        remoteStatus = status,
+                        // Mirror a few useful fields on the control side for display.
+                        isMotionDetected = status.isMotionDetected,
+                        isCryDetected = status.isCryDetected,
+                        currentDecibels = status.currentDecibels
+                    )
+                }
+            }
+        }
+    }
+
+    /** Control mobile: send a command to the client camera device. */
+    fun sendRemoteCommand(command: RemoteCommand) {
+        val ok = FirebaseCommandBus.sendCommand(command)
+        _uiState.update {
+            it.copy(
+                lastRemoteCommandText = if (ok) "Sent remote command: ${command.type}"
+                else "Remote not connected — command queued locally"
+            )
+        }
+    }
+
+    fun setRemoteDeviceId(deviceId: String) {
+        FirebaseCommandBus.setDeviceId(getApplication(), deviceId)
+        _uiState.update {
+            it.copy(remoteDeviceId = deviceId, isRemoteBusConnected = FirebaseCommandBus.isAvailable)
+        }
+        // Re-arm observers against the new device id.
+        if (BuildConfig.IS_CLIENT_DEVICE) {
+            listenForRemoteCommands()
+        } else if (BuildConfig.IS_CONTROL_DEVICE) {
+            observeClientStatus()
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        if (BuildConfig.IS_CLIENT_DEVICE) {
+            FirebaseCommandBus.setOnline(false)
+        }
+        remoteCommandJob?.cancel()
+        statusPublishJob?.cancel()
+        statusObserverJob?.cancel()
+    }
 
     val mediaItems: StateFlow<List<MediaItem>> = repository.allMedia
         .stateIn(
@@ -216,18 +383,48 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // Remote camera controls triggered from Dubai Web Browser / Remote App
+    // Remote camera controls triggered from the control mobile. These send
+    // commands to the client (camera) device over Firebase; locally they also
+    // update lastRemoteCommandText for immediate UI feedback.
     fun remoteToggleCameraLens() {
-        toggleLensFacing()
-        _uiState.update { 
-            it.copy(lastRemoteCommandText = "Remote Command Executed: Switched Camera Lens") 
+        sendRemoteCommand(RemoteCommand.ToggleLens)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Switched Camera Lens")
         }
     }
 
     fun remoteToggleFlash() {
-        cycleFlashMode()
-        _uiState.update { 
-            it.copy(lastRemoteCommandText = "Remote Command Executed: Toggled Camera Flash/Torch") 
+        sendRemoteCommand(RemoteCommand.CycleFlash)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Toggled Camera Flash/Torch")
+        }
+    }
+
+    fun remoteToggleArm() {
+        sendRemoteCommand(RemoteCommand.ToggleArm)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Toggle System Arm")
+        }
+    }
+
+    fun remoteStartRecording() {
+        sendRemoteCommand(RemoteCommand.StartRecording)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Start Recording")
+        }
+    }
+
+    fun remoteStopRecording() {
+        sendRemoteCommand(RemoteCommand.StopRecording)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Stop Recording")
+        }
+    }
+
+    fun remoteCapturePhoto() {
+        sendRemoteCommand(RemoteCommand.CapturePhoto)
+        _uiState.update {
+            it.copy(lastRemoteCommandText = "Remote Command Sent: Capture Photo")
         }
     }
 

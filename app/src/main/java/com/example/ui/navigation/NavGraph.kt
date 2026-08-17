@@ -49,9 +49,10 @@ enum class NavTab(val title: String, val icon: ImageVector, val tag: String) {
 
 @Composable
 fun MainNavContainer(
-    viewModel: SecurityViewModel
+    viewModel: SecurityViewModel,
+    initialTab: NavTab = NavTab.CAMERA
 ) {
-    var selectedTab by remember { mutableStateOf(NavTab.CAMERA) }
+    var selectedTab by remember { mutableStateOf(initialTab) }
 
     val uiState by viewModel.uiState.collectAsState()
     val mediaItems by viewModel.mediaItems.collectAsState()

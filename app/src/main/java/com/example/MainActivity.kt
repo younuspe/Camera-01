@@ -3,82 +3,70 @@ package com.example
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.example.ui.navigation.MainNavContainer
+import com.example.ui.navigation.NavTab
+import com.example.ui.theme.CamGuardTheme
+import com.example.ui.viewmodel.SecurityViewModel
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var previewView: PreviewView
     private val cameraPermissionRequestCode = 1001
+    private val viewModel by viewModels<SecurityViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        showCameraScreen()
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startCamera()
-        } else {
+        requestCameraPermissionIfNeeded()
+        renderUi()
+    }
+
+    private fun requestCameraPermissionIfNeeded() {
+        val permissionsToRequest = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.CAMERA)
+        }
+        // RECORD_AUDIO is used by the cry/sound detection feature and must be
+        // requested at runtime on Android 6.0+.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (permissionsToRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(Manifest.permission.CAMERA),
+                permissionsToRequest.toTypedArray(),
                 cameraPermissionRequestCode
             )
         }
     }
 
-    private fun showCameraScreen() {
-        previewView = PreviewView(this).apply {
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            scaleType = PreviewView.ScaleType.FILL_CENTER
+    private fun renderUi() {
+        // The control mobile (viewer/monitor side) opens on the dashboard so the
+        // user immediately sees stream metrics, motion logs and remote controls.
+        // The client mobile (camera device being monitored) opens on the live
+        // camera preview so it starts capturing right away.
+        val initialTab = if (BuildConfig.IS_CONTROL_DEVICE) {
+            NavTab.DASHBOARD
+        } else {
+            NavTab.CAMERA
         }
 
-        val container = FrameLayout(this)
-        container.addView(
-            previewView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        val label = TextView(this).apply {
-            text = "CamGuard • Local Camera Preview"
-            textSize = 16f
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(0x99000000.toInt())
-        }
-        container.addView(
-            label,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        setContentView(container)
-    }
-
-    private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
+        setContent {
+            CamGuardTheme {
+                MainNavContainer(
+                    viewModel = viewModel,
+                    initialTab = initialTab
+                )
             }
-
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(this, cameraSelector, preview)
-        }, ContextCompat.getMainExecutor(this))
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -91,7 +79,8 @@ class MainActivity : ComponentActivity() {
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
-            startCamera()
+            // Permission granted; the Compose camera screen will bind the camera
+            // on its next composition.
         }
     }
 }

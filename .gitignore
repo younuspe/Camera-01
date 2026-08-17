@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+# Firebase config contains project/API keys — never commit it.
+google-services.json
+/app/google-services.json

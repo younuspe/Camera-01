@@ -38,6 +38,9 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Vibration
@@ -445,6 +448,69 @@ fun SecurityDashboardScreen(
                                 },
                                 fontSize = 12.sp
                             )
+                        }
+                    }
+
+                    // Additional remote controls for full control over the client
+                    // camera device: arm/disarm, recording and snapshot.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.remoteToggleArm() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_toggle_arm_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (uiState.isSystemArmed) ActiveGreen else TextPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (uiState.isSystemArmed) ActiveGreen else SlateBorder
+                            )
+                        ) {
+                            Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (uiState.isSystemArmed) "Armed" else "Disarm", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (uiState.isRecording) viewModel.remoteStopRecording()
+                                else viewModel.remoteStartRecording()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_record_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (uiState.isRecording) LiveRed else TextPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (uiState.isRecording) LiveRed else SlateBorder
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isRecording) Icons.Default.Stop else Icons.Default.RadioButtonChecked,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (uiState.isRecording) "Stop Rec" else "Rec", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.remoteCapturePhoto() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("remote_capture_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+                        ) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Snap", fontSize = 12.sp)
                         }
                     }
 
