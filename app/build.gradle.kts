@@ -73,9 +73,14 @@ android {
     val keystorePass = System.getenv("CAMGUARD_KEYSTORE_PASS") ?: "android"
     val keyAliasVal = System.getenv("CAMGUARD_KEY_ALIAS") ?: "androiddebugkey"
     val keyPassVal = System.getenv("CAMGUARD_KEY_PASS") ?: "android"
+    // Resolve the keystore relative to the project root (not the module dir)
+    // so a `debug.keystore` created at the repo root by CI is found.
+    val keystoreFile = rootProject.file(keystorePath).let { f ->
+        if (f.exists()) f else file(keystorePath)
+    }
     signingConfigs {
         create("release") {
-            storeFile = file(keystorePath)
+            storeFile = keystoreFile
             storePassword = keystorePass
             keyAlias = keyAliasVal
             keyPassword = keyPassVal
