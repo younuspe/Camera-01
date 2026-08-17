@@ -2,7 +2,6 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
-    id("com.google.gms.google-services")
 }
 
 android {
@@ -104,10 +103,12 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Firebase Realtime Database — used for control -> client remote commands
-    // and client -> control status updates. No google-services.json is required
-    // for the build to pass (gradle.properties sets
-    // googleServices.missing.passthrough=true); at runtime the bus no-ops
-    // gracefully until a config is present.
+    // and client -> control status updates. The google-services Gradle plugin
+    // is intentionally NOT applied: it hard-fails the build when
+    // google-services.json is absent. Instead Firebase is initialized at
+    // runtime via FirebaseCommandBus.initManual(...) using values the user
+    // enters in Settings (persisted). When not configured the bus no-ops
+    // gracefully and the app stays in local-only mode.
     implementation(platform("com.google.firebase:firebase-bom:32.7.3"))
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-common-ktx")

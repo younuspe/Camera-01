@@ -118,7 +118,11 @@ object FirebaseCommandBus {
 
     /**
      * Initialize from a google-services.json baked into the APK (the default
-     * Firebase app). Safe to call even when no config is present.
+     * Firebase app). Because the google-services Gradle plugin is NOT applied,
+     * this only succeeds when a config was provided some other way (e.g. a
+     * manually-placed google-services.json processed by a custom build step).
+     * Safe to call even when no config is present — returns false and leaves
+     * the bus inactive.
      */
     fun initFromDefaultApp(context: Context): Boolean {
         return try {
@@ -129,7 +133,7 @@ object FirebaseCommandBus {
             if (savedId.isBlank()) saveDeviceId(context, id)
             pairing = DevicePairing(deviceId = id)
             database = db?.apply { setPersistenceEnabled(true) }
-            Log.i(TAG, "Initialized from default Firebase app. deviceId=$id available=${db != null}")
+            Log.i(TAG, "Default Firebase app init. deviceId=$id available=${db != null}")
             db != null
         } catch (e: Exception) {
             Log.w(TAG, "Default Firebase app not configured: ${e.message}")

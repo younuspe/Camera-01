@@ -79,21 +79,12 @@ code via `FirebaseCommandBus.setDeviceId(...)` or pair them to the same value.
 
 The app **builds and runs in local-only mode without any Firebase config** —
 the command bus no-ops gracefully until a config is present. To enable remote
-control:
+control you provide Firebase credentials at runtime via **manual
+configuration** (Option A below). The google-services Gradle plugin is
+intentionally NOT applied so the build never depends on a `google-services.json`
+file.
 
-### Option A — ship `google-services.json` (recommended)
-
-1. Create a project at <https://console.firebase.google.com> and add an
-   **Android app**.
-2. For the control APK use package name `com.example.control`; for the client
-   APK use `com.example.client` (or use `com.example` and let the build apply
-   the suffix — register all three to be safe).
-3. Download `google-services.json` and place it in `app/`.
-4. In the Firebase console enable **Realtime Database** (start in test mode
-   while developing) and copy the database URL.
-5. Rebuild — Firebase initializes automatically from the JSON.
-
-### Option B — configure manually (no JSON in the repo)
+### Option A — configure manually (recommended, no JSON in the repo)
 
 Call this at startup (e.g. in a custom `Application` class) with values from
 the Firebase console → Project settings:
@@ -111,7 +102,16 @@ FirebaseCommandBus.initManual(
 )
 ```
 
-The pairing is persisted and restored on later launches.
+The pairing is persisted and restored on later launches, so you only need to
+set it once (e.g. from a Settings screen via `FirebaseCommandBus.savePairing`).
+
+### Option B — ship `google-services.json`
+
+If you prefer the standard Firebase setup, add the
+`com.google.gms.google-services` plugin back in `build.gradle.kts`, drop a
+`google-services.json` into `app/`, and `FirebaseCommandBus.initFromDefaultApp`
+will pick it up. This is **not** the default because it makes the build fail
+when the JSON is missing (e.g. in CI / forks).
 
 ### Recommended Realtime Database rules
 
