@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -522,9 +523,8 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
      */
     fun uploadAllLocalMedia() {
         viewModelScope.launch {
-            repository.allMedia.value.forEach { item ->
-                uploadMediaItem(item)
-            }
+            val items = repository.allMedia.first()
+            items.forEach { item -> uploadMediaItem(item) }
         }
     }
 
