@@ -229,6 +229,9 @@ object FirebaseCommandBus {
     private fun statusRef(): DatabaseReference? =
         database?.reference?.child("devices")?.child(pairing.deviceId)?.child("status")
 
+    private fun snapshotRef(): DatabaseReference? =
+        database?.reference?.child("devices")?.child(pairing.deviceId)?.child("snapshot")
+
     /** Control mobile -> push a command for the client to execute. */
     fun sendCommand(command: RemoteCommand): Boolean {
         val ref = commandsRef()?.push() ?: return false
@@ -299,6 +302,42 @@ object FirebaseCommandBus {
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e(TAG, "Status observer cancelled: ${error.message}")
+                close(error.toException())
+            }
+        }
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
+    /**
+     * Client mobile -> publish a low-res JPEG snapshot (base64) so the control
+     * mobile can see what the client camera sees. Overwrites the previous value
+     * each time, so only the latest frame is kept (small RTDB footprint).
+     */
+    fun publishSnapshot(base64Jpeg: String): Boolean {
+        val ref = snapshotRef() ?: return false
+        ref.setValue(base64Jpeg)
+        return true
+    }
+
+    /**
+     * Control mobile -> observe the latest client snapshot (base64 JPEG).
+     * Emits every time the client publishes a new frame.
+     */
+    fun observeSnapshot(): Flow<String> = callbackFlow {
+        val ref = snapshotRef()
+        if (ref == null) {
+            close()
+            return@callbackFlow
+        }
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val raw = snapshot.getValue(String::class.java) ?: return
+                trySend(raw)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(TAG, "Snapshot observer cancelled: ${error.message}")
                 close(error.toException())
             }
         }

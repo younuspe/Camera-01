@@ -58,63 +58,74 @@ fun MainNavContainer(
     val mediaItems by viewModel.mediaItems.collectAsState()
     val motionEvents by viewModel.motionEvents.collectAsState()
 
+    // The client (camera) phone is meant to run unattended after install:
+    // it shows only the live camera preview with NO navigation bar, so the
+    // user cannot accidentally leave the camera screen. The control phone
+    // keeps the full bottom nav (Dashboard / Camera / Gallery / Settings).
+    val showNavBar = uiState.isControlDevice
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar(
-                containerColor = SlateCard,
-                contentColor = TextPrimary
-            ) {
-                NavTab.entries.forEach { tab ->
-                    val isSelected = selectedTab == tab
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { selectedTab = tab },
-                        icon = {
-                            if (tab == NavTab.DASHBOARD && uiState.isMotionDetected) {
-                                BadgedBox(
-                                    badge = {
-                                        Badge(containerColor = LiveRed)
-                                    }
-                                ) {
-                                    Icon(imageVector = tab.icon, contentDescription = tab.title)
-                                }
-                            } else if (tab == NavTab.GALLERY && mediaItems.isNotEmpty()) {
-                                BadgedBox(
-                                    badge = {
-                                        Badge(containerColor = CyanAccent) {
-                                            Text(mediaItems.size.toString(), fontSize = 9.sp, color = SlateDark)
+            if (showNavBar) {
+                NavigationBar(
+                    containerColor = SlateCard,
+                    contentColor = TextPrimary
+                ) {
+                    NavTab.entries.forEach { tab ->
+                        val isSelected = selectedTab == tab
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { selectedTab = tab },
+                            icon = {
+                                if (tab == NavTab.DASHBOARD && uiState.isMotionDetected) {
+                                    BadgedBox(
+                                        badge = {
+                                            Badge(containerColor = LiveRed)
                                         }
+                                    ) {
+                                        Icon(imageVector = tab.icon, contentDescription = tab.title)
                                     }
-                                ) {
+                                } else if (tab == NavTab.GALLERY && mediaItems.isNotEmpty()) {
+                                    BadgedBox(
+                                        badge = {
+                                            Badge(containerColor = CyanAccent) {
+                                                Text(mediaItems.size.toString(), fontSize = 9.sp, color = SlateDark)
+                                            }
+                                        }
+                                    ) {
+                                        Icon(imageVector = tab.icon, contentDescription = tab.title)
+                                    }
+                                } else {
                                     Icon(imageVector = tab.icon, contentDescription = tab.title)
                                 }
-                            } else {
-                                Icon(imageVector = tab.icon, contentDescription = tab.title)
-                            }
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = SlateDark,
-                            selectedTextColor = CyanAccent,
-                            indicatorColor = CyanAccent,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        ),
-                        modifier = Modifier.testTag(tab.tag)
-                    )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.title,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = SlateDark,
+                                selectedTextColor = CyanAccent,
+                                indicatorColor = CyanAccent,
+                                unselectedIconColor = TextMuted,
+                                unselectedTextColor = TextMuted
+                            ),
+                            modifier = Modifier.testTag(tab.tag)
+                        )
+                    }
                 }
             }
         }
     ) { innerPadding ->
         val screenModifier = Modifier.padding(innerPadding)
 
-        when (selectedTab) {
+        // On the client flavor the only screen is the camera; lock it there.
+        val activeTab = if (showNavBar) selectedTab else NavTab.CAMERA
+
+        when (activeTab) {
             NavTab.CAMERA -> CameraViewScreen(
                 viewModel = viewModel,
                 uiState = uiState,

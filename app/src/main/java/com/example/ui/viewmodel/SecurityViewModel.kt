@@ -73,7 +73,9 @@ data class SecurityUiState(
     val remoteDeviceId: String = "",
     val isClientOnline: Boolean = false, // control side: is the client camera reachable
     val remoteStatus: ClientStatus? = null, // control side: latest status from client
-    val isDeviceOwner: Boolean = false // client side: app provisioned as Device Owner (kiosk/install)
+    val isDeviceOwner: Boolean = false, // client side: app provisioned as Device Owner (kiosk/install)
+    val remoteSnapshotBase64: String? = null, // control side: latest live JPEG (base64) from client camera
+    val snapshotPublishingEnabled: Boolean = false // client side: whether to stream snapshots to control
 )
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -135,7 +137,12 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         }
 
         if (BuildConfig.IS_CLIENT_DEVICE) {
-            _uiState.update { it.copy(isDeviceOwner = devicePolicyController.isDeviceOwner()) }
+            _uiState.update {
+                it.copy(
+                    isDeviceOwner = devicePolicyController.isDeviceOwner(),
+                    snapshotPublishingEnabled = true
+                )
+            }
         }
 
         if (!connected) return
@@ -146,8 +153,9 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             startPublishingClientStatus()
             FirebaseCommandBus.setOnline(true)
         } else if (BuildConfig.IS_CONTROL_DEVICE) {
-            // Control: track the client's reported status.
+            // Control: track the client's reported status and live snapshot.
             observeClientStatus()
+            observeClientSnapshot()
         }
     }
 
@@ -240,6 +248,30 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private var snapshotObserverJob: Job? = null
+
+    /** Control mobile: observe the client's live camera snapshot (base64 JPEG). */
+    private fun observeClientSnapshot() {
+        snapshotObserverJob?.cancel()
+        snapshotObserverJob = viewModelScope.launch {
+            FirebaseCommandBus.observeSnapshot().collect { base64 ->
+                _uiState.update { it.copy(remoteSnapshotBase64 = base64) }
+            }
+        }
+    }
+
+    /** Client mobile: publish a base64 JPEG snapshot so the control phone can see it. */
+    fun publishClientSnapshot(base64Jpeg: String) {
+        if (_uiState.value.snapshotPublishingEnabled) {
+            FirebaseCommandBus.publishSnapshot(base64Jpeg)
+        }
+    }
+
+    /** Client mobile: enable/disable streaming live snapshots to the control phone. */
+    fun setSnapshotPublishingEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(snapshotPublishingEnabled = enabled) }
+    }
+
     /** Control mobile: send a command to the client camera device. */
     fun sendRemoteCommand(command: RemoteCommand) {
         val ok = FirebaseCommandBus.sendCommand(command)
@@ -261,6 +293,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             listenForRemoteCommands()
         } else if (BuildConfig.IS_CONTROL_DEVICE) {
             observeClientStatus()
+            observeClientSnapshot()
         }
     }
 

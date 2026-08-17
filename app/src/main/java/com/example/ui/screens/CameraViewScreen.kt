@@ -93,11 +93,14 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.WarningAmber
 import com.example.ui.viewmodel.SecurityUiState
 import com.example.ui.viewmodel.SecurityViewModel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+
+private const val SNAPSHOT_INTERVAL_MS = 3000L
 
 @Composable
 fun CameraViewScreen(
@@ -185,6 +188,41 @@ fun CameraViewScreen(
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
+        }
+    }
+
+    // Client flavor: periodically capture a low-res JPEG and publish it to
+    // Firebase so the control phone can display a live view of this camera.
+    // Runs only when monitoring is active and a camera use case is bound.
+    LaunchedEffect(uiState.isMonitoringActive, uiState.snapshotPublishingEnabled) {
+        if (!uiState.isMonitoringActive || !uiState.snapshotPublishingEnabled) return@LaunchedEffect
+        while (true) {
+            delay(SNAPSHOT_INTERVAL_MS)
+            val capture = imageCapture ?: continue
+            try {
+                val out = ByteArrayOutputStream()
+                // In-memory capture (no disk file) — small JPEG for the live view.
+                val opts = ImageCapture.OutputFileOptions.Builder(out).build()
+                capture.takePicture(
+                    opts,
+                    cameraExecutor,
+                    object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                            val jpeg = out.toByteArray()
+                            val b64 = android.util.Base64.encodeToString(
+                                jpeg, android.util.Base64.NO_WRAP
+                            )
+                            viewModel.publishClientSnapshot(b64)
+                        }
+
+                        override fun onError(exc: ImageCaptureException) {
+                            Log.w("CameraViewScreen", "Snapshot capture failed: ${exc.message}")
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.w("CameraViewScreen", "Snapshot loop error: ${e.message}")
+            }
         }
     }
 

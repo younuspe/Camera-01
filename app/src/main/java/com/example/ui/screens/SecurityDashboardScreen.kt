@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,10 +63,12 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -139,6 +142,13 @@ fun SecurityDashboardScreen(
                     )
                 }
             }
+        }
+
+        // Live view from the client camera. On the control phone we decode the
+        // latest base64 JPEG the client streamed over Firebase and show it here
+        // so the user can actually see the monitored device.
+        item {
+            LiveSnapshotCard(uiState = uiState)
         }
 
         // System State & Active Monitoring Controls Row
@@ -996,6 +1006,91 @@ fun MotionEventRow(event: MotionEvent) {
                     fontSize = 10.sp,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Shows the latest live JPEG streamed from the client (camera) phone over
+ * Firebase. Decoded from base64 into a Bitmap and shown with aspect ratio
+ * preserved. Shows a "waiting for client" placeholder until the first frame.
+ */
+@Composable
+fun LiveSnapshotCard(uiState: SecurityUiState) {
+    val base64 = uiState.remoteSnapshotBase64
+    val bitmap = remember(base64) {
+        if (base64.isNullOrEmpty()) null
+        else try {
+            val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = null,
+                    tint = if (uiState.isClientOnline) ActiveGreen else TextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Live View",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = if (uiState.isClientOnline) "● LIVE" else "● OFFLINE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (uiState.isClientOnline) LiveRed else TextMuted,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SlateDark),
+                contentAlignment = Alignment.Center
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Live camera snapshot",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (uiState.isClientOnline)
+                                "Waiting for first frame…"
+                            else "Client offline — connect to start",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted
+                        )
+                    }
+                }
             }
         }
     }
